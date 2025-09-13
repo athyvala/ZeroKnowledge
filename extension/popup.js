@@ -1184,8 +1184,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     const store = await chrome.storage.local.get('hiddenSharedSessions');
     const hidden = store.hiddenSharedSessions || [];
 
+    // Helper to parse potentially timezone-less timestamps
+    const toDate = (val) => {
+      if (!val) return null;
+      let d = new Date(val);
+      if (isNaN(d)) {
+        const iso = typeof val === 'string' ? (val.includes('T') ? val : val.replace(' ', 'T')) : val;
+        d = new Date(iso + 'Z');
+      }
+      return isNaN(d) ? null : d;
+    };
+
     listEl.innerHTML = '';
-    const filtered = Array.isArray(sessions) ? sessions.filter(s => !hidden.includes(String(s.id))) : [];
+
+    // First, auto-hide expired shares if we have expiration info
+    const notExpired = Array.isArray(sessions) ? sessions.filter(s => {
+      if (s && (s.expiration_minutes || s.expirationMinutes) && (s.shared_at || s.sharedAt)) {
+        const minutes = Number(s.expiration_minutes ?? s.expirationMinutes);
+        const sharedAt = toDate(s.shared_at ?? s.sharedAt);
+        if (sharedAt && minutes > 0) {
+          const expiresAt = sharedAt.getTime() + minutes * 60 * 1000;
+          return Date.now() < expiresAt;
+        }
+      }
+      return true; // keep if we can't determine
+    }) : [];
+
+    // Apply user's manual hidden list
+    const filtered = notExpired.filter(s => !hidden.includes(String(s.id)));
     if (filtered.length === 0) {
       listEl.innerHTML = '<div class="no-sessions">No shared sessions available</div>';
       return;
@@ -1199,7 +1225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="session-domain">${session.domain || 'Unknown domain'}</div>
           <div class="session-meta">
             Shared by: ${session.ownerEmail || 'Unknown'}<br>
-            Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
+            ${session.shared_at ? `Shared: ${formatDate(session.shared_at)}` : (session.created_at ? `Date: ${formatDate(session.created_at)}` : 'Date: -')}
           </div>
         </div>
         <div class="session-actions">
