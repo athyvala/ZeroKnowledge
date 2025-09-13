@@ -277,7 +277,7 @@ app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
 app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
-  const { email } = req.body;
+  const { email, expiration } = req.body;
 
   if (!email) {
     return res.status(400).json({ error: 'Email address is required' });
@@ -309,11 +309,11 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
 
     // Share the session (upsert)
     await db.query(
-      `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id)
-       VALUES ($1, $2, $3)
+      `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expiration)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (session_id, shared_with_user_id)
-       DO UPDATE SET shared_at = CURRENT_TIMESTAMP`,
-      [sessionId, userId, targetUser.id]
+       DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expiration = $4`,
+      [sessionId, userId, targetUser.id, expiration || null]
     );
 
     res.json({
@@ -390,7 +390,8 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
     const sharesResult = await db.query(
       `SELECT 
          u.email,
-         ss.shared_at
+         ss.shared_at,
+         ss.expiration
        FROM session_shares ss
        JOIN users u ON ss.shared_with_user_id = u.id
        WHERE ss.session_id = $1 AND ss.owner_user_id = $2
@@ -403,6 +404,51 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Failed to fetch share list' });
+  }
+});
+
+// Update expiration for a shared user
+app.put('/api/sessions/:id/share', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+  const { email, expiration } = req.body;
+
+  if (!email || !expiration) {
+    return res.status(400).json({ error: 'Email and expiration are required' });
+  }
+
+  try {
+    const sessionResult = await db.query(
+      'SELECT id FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or not owned by you' });
+    }
+
+    const userResult = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    const targetUser = userResult.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found with that email address' });
+    }
+
+    const updateResult = await db.query(
+      `UPDATE session_shares SET expiration = $1 WHERE session_id = $2 AND owner_user_id = $3 AND shared_with_user_id = $4`,
+      [expiration, sessionId, userId, targetUser.id]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Share not found' });
+    }
+
+    res.json({ message: `Expiration updated for ${email}` });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to update expiration' });
   }
 });
 
