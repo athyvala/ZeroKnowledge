@@ -57,12 +57,11 @@ const generateToken = (user) => {
 // Routes
 
 // Global variable to cache database schema state
-let hasExpirationFeatures = null; // Reset for debugging
+let hasExpirationFeatures = null;
 
 // Check if expiration features are available in database
 const checkExpirationFeatures = async () => {
-  // Temporarily disable cache for debugging
-  // if (hasExpirationFeatures !== null) return hasExpirationFeatures;
+  if (hasExpirationFeatures !== null) return hasExpirationFeatures;
   
   try {
     const columnsCheck = await db.query(`
@@ -70,9 +69,6 @@ const checkExpirationFeatures = async () => {
       WHERE table_name = 'session_shares' 
       AND column_name IN ('expires_at', 'expiration_minutes', 'is_revoked', 'revoked_at')
     `);
-    
-    console.log('DEBUG: Found columns in session_shares:', columnsCheck.rows.map(r => r.column_name));
-    console.log('DEBUG: Expected 4 columns, found:', columnsCheck.rows.length);
     
     hasExpirationFeatures = columnsCheck.rows.length >= 4;
     console.log(`Expiration features ${hasExpirationFeatures ? 'ENABLED' : 'DISABLED'} - Database migration ${hasExpirationFeatures ? 'complete' : 'required'}`);
@@ -402,15 +398,33 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
     if (hasExpiration) {
       // Calculate expiration time
       const expiresAt = new Date(Date.now() + (expirationMinutes * 60 * 1000));
+      console.log(`DEBUG: Setting expires_at to: ${expiresAt}`);
+      console.log(`DEBUG: Attempting to insert - sessionId: ${sessionId}, userId: ${userId}, targetUser: ${targetUser.id}`);
 
-      // Share the session (upsert) with expiration
-      await db.query(
-        `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expires_at, expiration_minutes)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (session_id, shared_with_user_id)
-         DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expires_at = $4, expiration_minutes = $5, is_revoked = FALSE, revoked_at = NULL`,
-        [sessionId, userId, targetUser.id, expiresAt, expirationMinutes]
-      );
+      try {
+        // Share the session (upsert) with expiration
+        const insertResult = await db.query(
+          `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expires_at, expiration_minutes)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (session_id, shared_with_user_id)
+           DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expires_at = $4, expiration_minutes = $5, is_revoked = FALSE, revoked_at = NULL
+           RETURNING *`,
+          [sessionId, userId, targetUser.id, expiresAt, expirationMinutes]
+        );
+        console.log(`DEBUG: Insert successful. Returned data:`, insertResult.rows);
+        console.log(`DEBUG: Row count affected:`, insertResult.rowCount);
+        
+        // Double-check what's actually in the table now
+        const verifyResult = await db.query(
+          'SELECT * FROM session_shares WHERE session_id = $1 AND shared_with_user_id = $2 ORDER BY shared_at DESC LIMIT 1',
+          [sessionId, targetUser.id]
+        );
+        console.log(`DEBUG: Verification - found row:`, verifyResult.rows);
+        
+      } catch (insertError) {
+        console.error('DEBUG: Database insertion error:', insertError);
+        return res.status(500).json({ error: 'Database insertion failed', details: insertError.message });
+      }
 
       res.json({
         message: `Session shared successfully with ${email} (expires in ${expirationMinutes} minutes)`,
@@ -421,13 +435,15 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       });
     } else {
       // Use old format for compatibility
-      await db.query(
+      console.log(`DEBUG: Using legacy mode for sharing`);
+      const insertResult = await db.query(
         `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id)
          VALUES ($1, $2, $3)
          ON CONFLICT (session_id, shared_with_user_id)
          DO UPDATE SET shared_at = CURRENT_TIMESTAMP`,
         [sessionId, userId, targetUser.id]
       );
+      console.log(`DEBUG: Legacy insert result:`, insertResult.rowCount, 'rows affected');
 
       res.json({
         message: `Session shared successfully with ${email} (permanent - no expiration)`,

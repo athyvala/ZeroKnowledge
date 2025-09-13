@@ -175,6 +175,26 @@
       color: #dc3545;
     }
 
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0.3; }
+    }
+
+    .timer-progress {
+      background: #e9ecef;
+      height: 4px;
+      border-radius: 2px;
+      margin: 6px 0;
+      overflow: hidden;
+    }
+
+    .timer-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #28a745, #ffc107, #dc3545);
+      transition: width 0.5s ease;
+      border-radius: 2px;
+    }
+
     .expiration-section {
       background: #f8f9fa;
       padding: 15px;
@@ -698,6 +718,9 @@
       <div class="active-session" id="activeSession" style="display: none;">
         <div>🔓 Active imported session for <strong id="sessionDomain"></strong></div>
         <div>Auto-logout in: <span class="timer" id="sessionTimer"></span></div>
+        <div class="timer-progress">
+          <div class="timer-progress-bar" id="timerProgressBar"></div>
+        </div>
         <button class="btn btn-danger btn-small" id="clearSessionBtn">
           End Session Now
         </button>

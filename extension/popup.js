@@ -85,6 +85,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const activeSessionDiv = document.getElementById('activeSession');
   const sessionDomainEl = document.getElementById('sessionDomain');
   const sessionTimerEl = document.getElementById('sessionTimer');
+  const timerProgressBar = document.getElementById('timerProgressBar');
   const clearSessionBtn = document.getElementById('clearSessionBtn');
 
   const API_BASE = 'http://localhost:3000/api'; // Replace with your server URL
@@ -223,6 +224,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     if (remaining <= 0) {
       sessionTimerEl.textContent = 'Expiring...';
+      sessionTimerEl.style.color = '#dc3545';
+      sessionTimerEl.style.fontWeight = 'bold';
+      if (timerProgressBar) timerProgressBar.style.width = '0%';
       clearImportedSession();
       return;
     }
@@ -235,6 +239,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (hours > 0) timeStr += `${hours}h `;
     if (minutes > 0 || hours > 0) timeStr += `${minutes}m `;
     timeStr += `${seconds}s`;
+    
+    // Update progress bar
+    const result = chrome.storage.local.get('activeSession').then((result) => {
+      if (result.activeSession && result.activeSession.originalExpiration) {
+        const totalDuration = result.activeSession.originalExpiration - result.activeSession.importTime;
+        const elapsed = now - result.activeSession.importTime;
+        const progressPercent = Math.max(0, Math.min(100, (elapsed / totalDuration) * 100));
+        if (timerProgressBar) {
+          timerProgressBar.style.width = `${100 - progressPercent}%`;
+        }
+      }
+    });
+    
+    // Color-code based on time remaining
+    const totalSeconds = Math.floor(remaining / 1000);
+    if (totalSeconds <= 60) {
+      // Less than 1 minute - red and blinking
+      sessionTimerEl.style.color = '#dc3545';
+      sessionTimerEl.style.fontWeight = 'bold';
+      sessionTimerEl.style.animation = 'blink 1s infinite';
+    } else if (totalSeconds <= 300) {
+      // Less than 5 minutes - orange
+      sessionTimerEl.style.color = '#fd7e14';
+      sessionTimerEl.style.fontWeight = 'bold';
+      sessionTimerEl.style.animation = 'none';
+    } else {
+      // More than 5 minutes - normal red
+      sessionTimerEl.style.color = '#dc3545';
+      sessionTimerEl.style.fontWeight = 'bold';
+      sessionTimerEl.style.animation = 'none';
+    }
     
     sessionTimerEl.textContent = timeStr;
   }
