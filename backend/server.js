@@ -214,9 +214,11 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 // Get sessions shared with the current user
 app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
   const userId = req.user.id;
+  console.log(`DEBUG: Getting shared sessions for user ID: ${userId}`);
   
   try {
     const hasExpiration = await checkExpirationFeatures();
+    console.log(`DEBUG: Expiration features enabled: ${hasExpiration}`);
     
     if (hasExpiration) {
       // With expiration support - filter out expired and revoked sessions
@@ -235,7 +237,9 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
           AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
         ORDER BY ss.shared_at DESC
       `;
+      console.log(`DEBUG: Running query with userId: ${userId}`);
       const result = await db.query(query, [userId]);
+      console.log(`DEBUG: Found ${result.rows.length} shared sessions:`, result.rows);
       res.json(result.rows);
     } else {
       // Legacy mode without expiration filtering
@@ -404,8 +408,8 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       try {
         // Share the session (upsert) with expiration
         const insertResult = await db.query(
-          `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expires_at, expiration_minutes)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, shared_at, expires_at, expiration_minutes)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5)
            ON CONFLICT (session_id, shared_with_user_id)
            DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expires_at = $4, expiration_minutes = $5, is_revoked = FALSE, revoked_at = NULL
            RETURNING *`,
