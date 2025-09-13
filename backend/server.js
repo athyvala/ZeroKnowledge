@@ -43,6 +43,20 @@ db.serialize(() => {
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS session_shares (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      owner_user_id INTEGER NOT NULL,
+      shared_with_user_id INTEGER NOT NULL,
+      shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_user_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE,
+      UNIQUE(session_id, shared_with_user_id)
+    )
+  `);
 });
 
 // Authentication middleware
@@ -265,7 +279,7 @@ app.get('/api/sessions/:id', authenticateToken, (req, res) => {
       }
 
       if (!row) {
-        return res.status(404).json({ error: 'Session not found' });
+        return res.status(404).json({ error: 'Session Lookup: Session not found'});
       }
 
       try {
@@ -283,6 +297,235 @@ app.get('/api/sessions/:id', authenticateToken, (req, res) => {
         console.error('JSON parse error:', parseError);
         res.status(500).json({ error: 'Corrupted session data' });
       }
+    }
+  );
+});
+
+// Share session with another user
+app.post('/api/sessions/:id/share', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+
+  // First, verify the session belongs to the current user
+  db.get(
+    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
+    [sessionId, userId],
+    (err, session) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found or not owned by you' });
+      }
+
+      // Find the user to share with
+      db.get('SELECT id, email FROM users WHERE email = ?', [email], (err, targetUser) => {
+        if (err) {
+          console.error('Database error:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        if (!targetUser) {
+          return res.status(404).json({ error: 'User not found with that email address' });
+        }
+
+        if (targetUser.id === userId) {
+          return res.status(400).json({ error: 'Cannot share session with yourself' });
+        }
+
+        // Create the share record
+        db.run(
+          'INSERT OR REPLACE INTO session_shares (session_id, owner_user_id, shared_with_user_id) VALUES (?, ?, ?)',
+          [sessionId, userId, targetUser.id],
+          function(err) {
+            if (err) {
+              console.error('Database error:', err);
+              return res.status(500).json({ error: 'Failed to share session' });
+            }
+
+            res.json({
+              message: `Session shared successfully with ${email}`,
+              sharedWith: targetUser.email
+            });
+          }
+        );
+      });
+    }
+  );
+});
+
+// Get sessions shared with the current user
+app.get('/api/sessions/shared', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+
+  const query = `
+    SELECT 
+      s.id, s.domain, s.url, s.created_at, s.updated_at,
+      owner.email as ownerEmail,
+      ss.shared_at
+    FROM sessions s
+    JOIN session_shares ss ON s.id = ss.session_id
+    JOIN users owner ON s.user_id = owner.id
+    WHERE ss.shared_with_user_id = ?
+    ORDER BY ss.shared_at DESC
+  `;
+
+  db.all(query, [userId], (err, rows) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to fetch shared sessions' });
+    }
+
+    res.json(rows);
+  });
+});
+
+// Get specific shared session data
+app.get('/api/sessions/shared/:id', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+
+  const query = `
+    SELECT s.*, owner.email as ownerEmail
+    FROM sessions s
+    JOIN session_shares ss ON s.id = ss.session_id
+    JOIN users owner ON s.user_id = owner.id
+    WHERE s.id = ? AND ss.shared_with_user_id = ?
+  `;
+
+  db.get(query, [sessionId, userId], (err, row) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!row) {
+      return res.status(404).json({ error: 'Shared session not found or not accessible' });
+    }
+
+    try {
+      const cookies = JSON.parse(row.cookies);
+      res.json({
+        id: row.id,
+        domain: row.domain,
+        url: row.url,
+        cookies: cookies,
+        userAgent: row.user_agent,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        ownerEmail: row.ownerEmail
+      });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      res.status(500).json({ error: 'Corrupted session data' });
+    }
+  });
+});
+
+// Unshare session (remove share)
+app.delete('/api/sessions/:id/share', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+
+  // Verify the session belongs to the current user
+  db.get(
+    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
+    [sessionId, userId],
+    (err, session) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found or not owned by you' });
+      }
+
+      // Find the user to unshare from
+      db.get('SELECT id FROM users WHERE email = ?', [email], (err, targetUser) => {
+        if (err) {
+          console.error('Database error:', err);
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        if (!targetUser) {
+          return res.status(404).json({ error: 'User not found with that email address' });
+        }
+
+        // Remove the share record
+        db.run(
+          'DELETE FROM session_shares WHERE session_id = ? AND owner_user_id = ? AND shared_with_user_id = ?',
+          [sessionId, userId, targetUser.id],
+          function(err) {
+            if (err) {
+              console.error('Database error:', err);
+              return res.status(500).json({ error: 'Failed to unshare session' });
+            }
+
+            if (this.changes === 0) {
+              return res.status(404).json({ error: 'Share not found' });
+            }
+
+            res.json({
+              message: `Session unshared from ${email}`
+            });
+          }
+        );
+      });
+    }
+  );
+});
+
+// Get list of users who have access to a specific session
+app.get('/api/sessions/:id/shares', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+
+  // Verify the session belongs to the current user
+  db.get(
+    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
+    [sessionId, userId],
+    (err, session) => {
+      if (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Database error' });
+      }
+
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found or not owned by you' });
+      }
+
+      // Get list of users this session is shared with
+      const query = `
+        SELECT 
+          u.email,
+          ss.shared_at
+        FROM session_shares ss
+        JOIN users u ON ss.shared_with_user_id = u.id
+        WHERE ss.session_id = ? AND ss.owner_user_id = ?
+        ORDER BY ss.shared_at DESC
+      `;
+
+      db.all(query, [sessionId, userId], (err, rows) => {
+        if (err) {
+          console.error('Database error:', err);
+          return res.status(500).json({ error: 'Failed to fetch share list' });
+        }
+
+        res.json(rows);
+      });
     }
   );
 });
@@ -370,4 +613,3 @@ app.listen(PORT, () => {
   console.log(`Session Manager API server running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
 });
-      

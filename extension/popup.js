@@ -10,10 +10,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const userInfo = document.getElementById('userInfo');
   const saveSessionBtn = document.getElementById('saveSessionBtn');
   const loadSessionBtn = document.getElementById('loadSessionBtn');
+  
   const sessionsDropdown = document.getElementById('sessionsDropdown');
   const deleteSessionBtn = document.getElementById('deleteSessionBtn');
   const status = document.getElementById('status');
   const domainEl = document.getElementById('currentDomain');
+
+  // Share session elements
+  const shareSessionBtn = document.getElementById('shareSessionBtn');
+  const shareModal = document.getElementById('shareModal');
+  const shareEmailInput = document.getElementById('shareEmail');
+  const confirmShareBtn = document.getElementById('confirmShareBtn');
+  const cancelShareBtn = document.getElementById('cancelShareBtn');
+
+  // Shared sessions elements
+  const sharedSessionsBtn = document.getElementById('sharedSessionsBtn');
+  const sharedSessionsModal = document.getElementById('sharedSessionsModal');
+  const sharedSessionsList = document.getElementById('sharedSessionsList');
+  const closeSharedModalBtn = document.getElementById('closeSharedModalBtn');
 
   const API_BASE = 'http://localhost:3000/api'; // Replace with your server URL
   let currentTab = null;
@@ -360,6 +374,89 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Share session functionality
+  shareSessionBtn.addEventListener('click', () => {
+    const sessionId = sessionsDropdown.value;
+    if (!sessionId) {
+      showStatus('Please select a session to share', 'error');
+      return;
+    }
+    showShareModal();
+  });
+
+  confirmShareBtn.addEventListener('click', async () => {
+    const sessionId = sessionsDropdown.value;
+    const shareEmail = shareEmailInput.value.trim();
+    
+    if (!sessionId) {
+      showStatus('Please select a session to share', 'error');
+      return;
+    }
+    
+    if (!shareEmail) {
+      showStatus('Please enter an email address', 'error');
+      return;
+    }
+    
+    if (!isValidEmail(shareEmail)) {
+      showStatus('Please enter a valid email address', 'error');
+      return;
+    }
+
+    try {
+      showStatus('Sharing session...', 'info');
+      
+      const response = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`
+        },
+        body: JSON.stringify({ email: shareEmail })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus('Session shared successfully!', 'success');
+        hideShareModal();
+      } else {
+        showStatus(data.error || 'Failed to share session', 'error');
+      }
+
+    } catch (error) {
+      console.error('Share session error:', error);
+      showStatus('Share failed: ' + error.message, 'error');
+    }
+  });
+
+  cancelShareBtn.addEventListener('click', () => {
+    hideShareModal();
+  });
+
+  // Shared sessions functionality
+  sharedSessionsBtn.addEventListener('click', async () => {
+    showSharedSessionsModal();
+    await loadSharedSessions();
+  });
+
+  closeSharedModalBtn.addEventListener('click', () => {
+    hideSharedSessionsModal();
+  });
+
+  // Close modals when clicking outside
+  shareModal.addEventListener('click', (e) => {
+    if (e.target === shareModal) {
+      hideShareModal();
+    }
+  });
+
+  sharedSessionsModal.addEventListener('click', (e) => {
+    if (e.target === sharedSessionsModal) {
+      hideSharedSessionsModal();
+    }
+  });
+
   async function loadUserSessions() {
     if (!currentUser) return;
 
@@ -384,6 +481,186 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       console.error('Load sessions error:', error);
     }
+  }
+
+  async function loadSharedSessions() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/sessions/shared`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const sharedSessions = await response.json();
+
+      if (response.ok) {
+        displaySharedSessions(sharedSessions);
+      } else {
+        console.error('Failed to load shared sessions:', sharedSessions.error);
+      }
+    } catch (error) {
+      console.error('Load shared sessions error:', error);
+    }
+  }
+
+  function displaySharedSessions(sessions) {
+    console.log('displaySharedSessions called with:', sessions);
+    console.log('sharedSessionsList element:', sharedSessionsList);
+    
+    if (!sharedSessionsList) {
+      console.error('sharedSessionsList element not found!');
+      return;
+    }
+    
+    sharedSessionsList.innerHTML = '';
+    
+    if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
+      console.log('No sessions to display');
+      sharedSessionsList.innerHTML = '<div class="no-sessions">No shared sessions available</div>';
+      return;
+    }
+
+    console.log('Displaying', sessions.length, 'shared sessions');
+
+    sessions.forEach((session, index) => {
+      console.log(`Creating session item ${index}:`, session);
+      
+      const sessionItem = document.createElement('div');
+      sessionItem.className = 'shared-session-item';
+        sessionItem.innerHTML = `
+          <div class="session-info">
+            <div class="session-domain">${session.domain || 'Unknown domain'}</div>
+            <div class="session-meta">
+              Shared by: ${session.ownerEmail || 'Unknown'}<br>
+              Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
+            </div>
+          </div>
+          <div class="session-actions">
+            <button class="btn btn-sm btn-primary shared-load-btn" data-session-id="${session.id}">
+              Load Session
+            </button>
+          </div>
+        `;
+      sharedSessionsList.appendChild(sessionItem);
+    });
+    
+    console.log('Finished displaying shared sessions');
+
+      // Attach event listeners to shared session load buttons
+      const loadBtns = sharedSessionsList.querySelectorAll('.shared-load-btn');
+      loadBtns.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const sessionId = btn.getAttribute('data-session-id');
+          await window.loadSharedSession(sessionId);
+        });
+      });
+  }
+
+  // Make loadSharedSession globally accessible for onclick
+  window.loadSharedSession = async (sessionId) => {
+    try {
+      showStatus('Loading shared session...', 'info');
+      
+      const response = await fetch(`${API_BASE}/sessions/shared/${sessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const sessionData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(sessionData.error || 'Failed to load shared session');
+      }
+
+      showStatus(`Importing ${sessionData.cookies.length} cookies...`, 'info');
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Import each cookie (same logic as regular session loading)
+      for (const cookie of sessionData.cookies) {
+        try {
+          let cookieDomain = cookie.domain;
+          if (cookieDomain.startsWith('.')) {
+            cookieDomain = cookieDomain.substring(1);
+          }
+          
+          const protocol = cookie.secure ? 'https://' : 'http://';
+          const cookieUrl = protocol + cookieDomain + cookie.path;
+
+          const cookieDetails = {
+            url: cookieUrl,
+            name: cookie.name,
+            value: cookie.value,
+            path: cookie.path,
+            secure: cookie.secure,
+            httpOnly: cookie.httpOnly,
+            domain: cookie.domain
+          };
+
+          if (!cookie.session && cookie.expirationDate) {
+            cookieDetails.expirationDate = cookie.expirationDate;
+          }
+
+          await chrome.cookies.set(cookieDetails);
+          successCount++;
+        } catch (cookieError) {
+          console.error('Cookie import failed:', cookie.name, cookieError);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        showStatus(`Shared session loaded! ${successCount} cookies imported${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
+        hideSharedSessionsModal();
+        
+        // Navigate to the domain
+        setTimeout(() => {
+          chrome.tabs.update(currentTab.id, { url: sessionData.url || `https://${sessionData.domain}` });
+        }, 1000);
+      } else {
+        throw new Error('Failed to import any cookies');
+      }
+
+    } catch (error) {
+      console.error('Load shared session error:', error);
+      showStatus('Load failed: ' + error.message, 'error');
+    }
+  };
+
+  // Modal helper functions
+  function showShareModal() {
+    shareModal.style.display = 'flex';
+    // Focus the email input when showing modal
+    const emailInput = document.getElementById('shareEmail');
+    if (emailInput) {
+      emailInput.focus();
+    }
+  }
+
+  function hideShareModal() {
+    shareModal.style.display = 'none';
+    // Clear the email input when hiding
+    const emailInput = document.getElementById('shareEmail');
+    if (emailInput) {
+      emailInput.value = '';
+    }
+  }
+
+  function showSharedSessionsModal() {
+    sharedSessionsModal.style.display = 'flex';
+  }
+
+  function hideSharedSessionsModal() {
+    sharedSessionsModal.style.display = 'none';
+  }
+
+  function isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   }
 
   function showStatus(message, type) {

@@ -139,12 +139,14 @@
 
     .btn-row {
       display: flex;
-      gap: 8px;
+      gap: 4px;
     }
 
     .btn-row .btn {
       flex: 1;
       margin-bottom: 0;
+      font-size: 12px;
+      padding: 8px 4px;
     }
 
     .status {
@@ -205,6 +207,107 @@
       background: #eee;
       margin: 20px 0;
     }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .modal-content {
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      width: 300px;
+      max-width: 90%;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-large {
+      width: 400px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .modal-header .btn {
+      width: auto;
+      min-width: 30px;
+      margin: 0;
+      padding: 4px 8px;
+    }
+
+    .shared-sessions-list {
+      max-height: 350px;
+      overflow-y: auto;
+    }
+
+    .shared-session-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      background: #f9f9f9;
+    }
+
+    .session-info {
+      flex: 1;
+    }
+
+    .session-domain {
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .session-meta {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.3;
+    }
+
+    .session-actions {
+      margin-left: 12px;
+    }
+
+    .session-actions .btn {
+      width: auto;
+      margin: 0;
+      padding: 6px 12px;
+    }
+
+    .no-sessions {
+      text-align: center;
+      color: #666;
+      font-style: italic;
+      padding: 40px 20px;
+    }
   </style>
 </head>
 <body>
@@ -250,13 +353,46 @@
       </div>
       
       <div class="btn-row">
-        <button id="loadSessionBtn" class="btn btn-primary">Load Session</button>
+        <button id="loadSessionBtn" class="btn btn-primary">Load</button>
+        <button id="shareSessionBtn" class="btn btn-secondary">Share</button>
         <button id="deleteSessionBtn" class="btn btn-danger">Delete</button>
       </div>
 
       <div class="divider"></div>
 
+      <button id="sharedSessionsBtn" class="btn btn-outline">View Shared Sessions</button>
+
+      <div class="divider"></div>
+
       <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+    </div>
+
+    <!-- Share Session Modal -->
+    <div id="shareModal" class="modal">
+      <div class="modal-content">
+        <h3>Share Session</h3>
+        <div class="form-group">
+          <label for="shareEmail">Share with email:</label>
+          <input type="email" id="shareEmail" placeholder="Enter email address" required>
+        </div>
+        <div class="btn-row">
+          <button id="confirmShareBtn" class="btn btn-primary">Share</button>
+          <button id="cancelShareBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shared Sessions Modal -->
+    <div id="sharedSessionsModal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>Sessions Shared With You</h3>
+          <button id="closeSharedModalBtn" class="btn btn-sm btn-secondary">×</button>
+        </div>
+        <div id="sharedSessionsList" class="shared-sessions-list">
+          <!-- Shared sessions will be populated here -->
+        </div>
+      </div>
     </div>
   </div>
 
