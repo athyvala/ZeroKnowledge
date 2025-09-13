@@ -264,11 +264,82 @@ app.post('/api/sessions', authenticateToken, (req, res) => {
   });
 });
 
+// Get sessions shared with the current user
+app.get('/api/sessions/shared', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+
+  const query = `
+    SELECT 
+      s.id, s.domain, s.url, s.created_at, s.updated_at,
+      owner.email as ownerEmail,
+      ss.shared_at
+    FROM sessions s
+    JOIN session_shares ss ON s.id = ss.session_id
+    JOIN users owner ON s.user_id = owner.id
+    WHERE ss.shared_with_user_id = ?
+    ORDER BY ss.shared_at DESC
+  `;
+
+  console.log('Query succeeded:', query);
+
+  db.all(query, [userId], (err, rows) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Failed to fetch shared sessions' });
+    }
+
+    res.json(rows);
+  });
+});
+
+// Get specific shared session data
+app.get('/api/sessions/shared/:id', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+
+  const query = `
+    SELECT s.*, owner.email as ownerEmail
+    FROM sessions s
+    JOIN session_shares ss ON s.id = ss.session_id
+    JOIN users owner ON s.user_id = owner.id
+    WHERE s.id = ? AND ss.shared_with_user_id = ?
+  `;
+
+  db.get(query, [sessionId, userId], (err, row) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (!row) {
+      return res.status(404).json({ error: 'Shared session not found or not accessible' });
+    }
+
+    try {
+      const cookies = JSON.parse(row.cookies);
+      res.json({
+        id: row.id,
+        domain: row.domain,
+        url: row.url,
+        cookies: cookies,
+        userAgent: row.user_agent,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        ownerEmail: row.ownerEmail
+      });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      res.status(500).json({ error: 'Corrupted session data' });
+    }
+  });
+});
+
 // Get specific session
 app.get('/api/sessions/:id', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
 
+  console.log('sessions/:id called with sessionId:', sessionId, 'and userId:', userId);
   db.get(
     'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
     [sessionId, userId],
@@ -359,74 +430,6 @@ app.post('/api/sessions/:id/share', authenticateToken, (req, res) => {
       });
     }
   );
-});
-
-// Get sessions shared with the current user
-app.get('/api/sessions/shared', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-
-  const query = `
-    SELECT 
-      s.id, s.domain, s.url, s.created_at, s.updated_at,
-      owner.email as ownerEmail,
-      ss.shared_at
-    FROM sessions s
-    JOIN session_shares ss ON s.id = ss.session_id
-    JOIN users owner ON s.user_id = owner.id
-    WHERE ss.shared_with_user_id = ?
-    ORDER BY ss.shared_at DESC
-  `;
-
-  db.all(query, [userId], (err, rows) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Failed to fetch shared sessions' });
-    }
-
-    res.json(rows);
-  });
-});
-
-// Get specific shared session data
-app.get('/api/sessions/shared/:id', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const sessionId = req.params.id;
-
-  const query = `
-    SELECT s.*, owner.email as ownerEmail
-    FROM sessions s
-    JOIN session_shares ss ON s.id = ss.session_id
-    JOIN users owner ON s.user_id = owner.id
-    WHERE s.id = ? AND ss.shared_with_user_id = ?
-  `;
-
-  db.get(query, [sessionId, userId], (err, row) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
-    if (!row) {
-      return res.status(404).json({ error: 'Shared session not found or not accessible' });
-    }
-
-    try {
-      const cookies = JSON.parse(row.cookies);
-      res.json({
-        id: row.id,
-        domain: row.domain,
-        url: row.url,
-        cookies: cookies,
-        userAgent: row.user_agent,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        ownerEmail: row.ownerEmail
-      });
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      res.status(500).json({ error: 'Corrupted session data' });
-    }
-  });
 });
 
 // Unshare session (remove share)
