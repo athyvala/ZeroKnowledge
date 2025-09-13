@@ -873,15 +873,20 @@ app.get('/api/access-requests/incoming', authenticateToken, async (req, res) => 
   try {
     const result = await db.query(`
       SELECT 
-        ar.id, ar.url, ar.domain, ar.message, ar.status, ar.created_at,
+        ar.id,
+        ar.url,
+        ar.domain,
+        ar.message,
+        ar.status,
+        COALESCE(ar.created_at, ar.responded_at, CURRENT_TIMESTAMP) AS created_at,
         u.email as requesterEmail,
         COUNT(s.id) as sessionCount
       FROM access_requests ar
       JOIN users u ON ar.requester_id = u.id
       LEFT JOIN sessions s ON s.user_id = ar.owner_id AND s.domain = ar.domain
       WHERE ar.owner_id = $1
-      GROUP BY ar.id, ar.url, ar.domain, ar.message, ar.status, ar.created_at, u.email
-      ORDER BY ar.created_at DESC
+      GROUP BY ar.id, ar.url, ar.domain, ar.message, ar.status, COALESCE(ar.created_at, ar.responded_at, CURRENT_TIMESTAMP), u.email
+      ORDER BY created_at DESC
     `, [ownerId]);
 
     res.json(result.rows);
@@ -920,12 +925,18 @@ app.get('/api/access-requests/outgoing', authenticateToken, async (req, res) => 
   try {
     const result = await db.query(`
       SELECT 
-        ar.id, ar.url, ar.domain, ar.message, ar.status, ar.created_at, ar.responded_at,
+        ar.id,
+        ar.url,
+        ar.domain,
+        ar.message,
+        ar.status,
+        COALESCE(ar.created_at, ar.responded_at, CURRENT_TIMESTAMP) AS created_at,
+        ar.responded_at,
         u.email as owneremail
       FROM access_requests ar
       JOIN users u ON ar.owner_id = u.id
       WHERE ar.requester_id = $1
-      ORDER BY ar.created_at DESC
+      ORDER BY created_at DESC
     `, [requesterId]);
 
     res.json(result.rows);

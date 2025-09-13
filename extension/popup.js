@@ -1599,7 +1599,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     deleteBtns.forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const requestId = btn.getAttribute('data-request-id');
         await handleDeleteAccessRequest(requestId);
       });
@@ -1649,7 +1651,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const response = await fetch(`${API_BASE}/access-requests/${requestId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${currentUser.token}`
+          'Authorization': `Bearer ${currentUser.token}`,
+          'Cache-Control': 'no-cache'
         }
       });
       const data = await response.json();
