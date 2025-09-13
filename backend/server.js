@@ -44,6 +44,12 @@ const authenticateToken = (req, res, next) => {
 // Helper functions
 // Convert UTC date to EST/EDT string
 
+// Helper function to format dates consistently
+const formatDate = (date) => {
+  if (!date) return null;
+  return new Date(date).toISOString();
+};
+
 const hashPassword = async (password) => {
   return await bcrypt.hash(password, 10);
 };
@@ -166,7 +172,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
     } else {
       // Create new session
       const result = await db.query(
-        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent, created_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING id',
         [userId, domain, url, cookiesJson, userAgent]
       );
       res.status(201).json({
@@ -429,14 +435,13 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
     );
 
     // Convert timestamps to EST
-    const rows = sharesResult.rows.map(row => ({
-      ...row,
-      shared_at: row.shared_at,
-      expiration: row.expiration
-    }));
-    res.json(rows);
-
-  } catch (error) {
+      // Ensure dates are properly formatted in ISO format
+      const rows = sharesResult.rows.map(row => ({
+        ...row,
+        shared_at: row.shared_at ? row.shared_at.toISOString() : null,
+        expiration: row.expiration ? row.expiration.toISOString() : null
+      }));
+      res.json(rows);  } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Failed to fetch share list' });
   }
@@ -568,7 +573,7 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
       // Create access request
       await db.query(
-        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
+        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
         [requesterId, friendIdNum, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
       );
 
@@ -808,7 +813,7 @@ app.post('/api/friends/request', authenticateToken, async (req, res) => {
 
     // Create friend request
     await db.query(
-      'INSERT INTO friend_requests (sender_id, receiver_id, message) VALUES ($1, $2, $3)',
+      'INSERT INTO friend_requests (sender_id, receiver_id, message, created_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
       [senderId, targetUser.id, message || `Friend request from ${req.user.email}`]
     );
 
@@ -889,7 +894,7 @@ app.post('/api/friends/requests/:id/accept', authenticateToken, async (req, res)
     const user2Id = Math.max(request.sender_id, request.receiver_id);
     
     await db.query(
-      'INSERT INTO friendships (user1_id, user2_id) VALUES ($1, $2)',
+      'INSERT INTO friendships (user1_id, user2_id, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING',
       [user1Id, user2Id]
     );
 
@@ -937,15 +942,15 @@ app.get('/api/friends', authenticateToken, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT 
-        f.created_at as friendsSince,
+        f.created_at as friendssince,
         CASE 
           WHEN f.user1_id = $1 THEN u2.email
           ELSE u1.email
-        END as friendEmail,
+        END as friendemail,
         CASE 
           WHEN f.user1_id = $1 THEN u2.id
           ELSE u1.id
-        END as friendId
+        END as friendid
       FROM friendships f
       JOIN users u1 ON f.user1_id = u1.id
       JOIN users u2 ON f.user2_id = u2.id
