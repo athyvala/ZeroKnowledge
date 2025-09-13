@@ -29,12 +29,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sharedSessionsList = document.getElementById('sharedSessionsList');
   const closeSharedModalBtn = document.getElementById('closeSharedModalBtn');
 
-  // Manage my shares elements
-  const manageMySharesBtn = document.getElementById('manageMySharesBtn');
-  const manageMySharesModal = document.getElementById('manageMySharesModal');
-  const mySharesList = document.getElementById('mySharesList');
-  const closeManageMySharesBtn = document.getElementById('closeManageMySharesBtn');
-
   // Access request elements
   const requestAccessBtn = document.getElementById('requestAccessBtn');
   const requestAccessModal = document.getElementById('requestAccessModal');
@@ -199,27 +193,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       const now = Date.now();
       
       if (now < session.autoLogoutTime) {
-        // Session is still active, but check if it's been revoked on the server
-        if (session.isSharedSession && currentUser) {
-          try {
-            // Check if the shared session is still accessible
-            const response = await fetch(`${API_BASE}/sessions/shared/${session.sessionId || 'check'}`, {
-              headers: {
-                'Authorization': `Bearer ${currentUser.token}`
-              }
-            });
-            
-            if (!response.ok) {
-              // Session no longer accessible (likely revoked)
-              await clearImportedSession('revoked');
-              return;
-            }
-          } catch (error) {
-            console.log('Could not check session status:', error);
-            // Continue with normal flow if we can't check
-          }
-        }
-        
         // Session is still active
         sessionDomainEl.textContent = session.domain;
         activeSessionDiv.style.display = 'block';
@@ -227,28 +200,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Update timer
         updateSessionTimer(session.autoLogoutTime);
         
-        // Set interval to update timer and periodically check revocation status
+        // Set interval to update timer
         if (timerInterval) clearInterval(timerInterval);
-        timerInterval = setInterval(async () => {
+        timerInterval = setInterval(() => {
           updateSessionTimer(session.autoLogoutTime);
-          
-          // Check revocation status every 30 seconds for shared sessions
-          if (session.isSharedSession && currentUser && Date.now() % 30000 < 1000) {
-            try {
-              const response = await fetch(`${API_BASE}/sessions/shared/${session.sessionId || 'check'}`, {
-                headers: {
-                  'Authorization': `Bearer ${currentUser.token}`
-                }
-              });
-              
-              if (!response.ok) {
-                await clearImportedSession('revoked');
-                return;
-              }
-            } catch (error) {
-              // Ignore check errors
-            }
-          }
         }, 1000);
       } else {
         // Session expired, clean up
@@ -319,14 +274,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     sessionTimerEl.textContent = timeStr;
   }
 
-  async function clearImportedSession(reason = 'expired') {
+  async function clearImportedSession() {
     const result = await chrome.storage.local.get('activeSession');
     
     if (result.activeSession) {
       const session = result.activeSession;
       
-      const reasonMessage = reason === 'revoked' ? 'Session access revoked by owner' : 'Clearing imported session...';
-      showStatus(reasonMessage, 'info');
+      showStatus('Clearing imported session...', 'info');
       
       // Delete all imported cookies via background script
       for (const cookie of session.cookies) {
@@ -365,10 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         timerInterval = null;
       }
       
-      const finalMessage = reason === 'revoked' 
-        ? 'Session access revoked - you have been logged out' 
-        : 'Session cleared - you have been logged out';
-      showStatus(finalMessage, reason === 'revoked' ? 'warning' : 'success');
+      showStatus('Session cleared - you have been logged out', 'success');
     }
   }
 
@@ -761,16 +712,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideSharedSessionsModal();
   });
 
-  // Manage my shares functionality
-  manageMySharesBtn.addEventListener('click', async () => {
-    showManageMySharesModal();
-    await loadMyShares();
-  });
-
-  closeManageMySharesBtn.addEventListener('click', () => {
-    hideManageMySharesModal();
-  });
-
   // Close modals when clicking outside
   shareModal.addEventListener('click', (e) => {
     if (e.target === shareModal) {
@@ -784,12 +725,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  manageMySharesModal.addEventListener('click', (e) => {
-    if (e.target === manageMySharesModal) {
-      hideManageMySharesModal();
-    }
-  });
-
   // ACCESS REQUEST EVENT LISTENERS
 
   // Request access functionality (now works with friends)
@@ -798,7 +733,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       showStatus('Please login first', 'error');
       return;
     }
-    await showRequestAccessFromFriendsModal();
+    showRequestAccessModal();
   });
 
   confirmRequestBtn.addEventListener('click', async () => {
@@ -826,17 +761,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         showStatus(data.message, 'success');
         hideRequestAccessModal();
       } else {
-        showStatus(data.error || 'Failed to send access request', 'error');
+        // Handle specific error codes
+        if (data.code === 'NO_FRIENDS_WITH_SESSIONS') {
+          showStatus('No friends have sessions for this domain. You can:\n1. Add friends who use this site\n2. Use "Request Access from Friends" to send targeted requests', 'error');
+        } else if (data.code === 'REQUESTS_ALREADY_EXIST') {
+          showStatus('You already have pending requests for this domain with your friends', 'error');
+        } else {
+          showStatus(data.error || 'Failed to send access request', 'error');
+        }
       }
 
     } catch (error) {
       console.error('Access request error:', error);
-      showStatus('Request failed: ' + error.message, 'error');
+      if (error.message.includes('Failed to fetch')) {
+        showStatus('Cannot connect to server. Please check if the backend is running on http://localhost:3000', 'error');
+      } else {
+        showStatus('Request failed: ' + error.message, 'error');
+      }
     }
   });
 
   cancelRequestBtn.addEventListener('click', () => {
     hideRequestAccessModal();
+  });
+
+  // Switch to friends request flow
+  document.addEventListener('click', async (e) => {
+    if (e.target && e.target.id === 'switchToFriendsRequestBtn') {
+      e.preventDefault();
+      hideRequestAccessModal();
+      await showRequestAccessFromFriendsModal();
+    }
   });
 
   // View requests functionality
@@ -1206,135 +1161,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
   }
 
-  async function loadMyShares() {
-    if (!currentUser) return;
-
-    try {
-      console.log('Loading my shares for user:', currentUser.email);
-      const response = await fetch(`${API_BASE}/sessions/my-shares`, {
-        headers: {
-          'Authorization': `Bearer ${currentUser.token}`
-        }
-      });
-
-      console.log('My shares response status:', response.status);
-      const myShares = await response.json();
-      console.log('My shares response data:', myShares);
-
-      if (response.ok) {
-        displayMyShares(myShares);
-      } else {
-        console.error('Failed to load my shares:', myShares.error);
-        mySharesList.innerHTML = `<div class="no-sessions">Failed to load shares: ${myShares.error || 'Unknown error'}</div>`;
-      }
-    } catch (error) {
-      console.error('Load my shares error:', error);
-      mySharesList.innerHTML = `<div class="no-sessions">Error loading shares: ${error.message}</div>`;
-    }
-  }
-
-  function displayMyShares(shares) {
-    mySharesList.innerHTML = '';
-    
-    if (!shares || !Array.isArray(shares) || shares.length === 0) {
-      mySharesList.innerHTML = '<div class="no-sessions">You haven\'t shared any sessions yet</div>';
-      return;
-    }
-
-    shares.forEach((share) => {
-      const shareItem = document.createElement('div');
-      shareItem.className = 'shared-session-item';
-      
-      const statusClass = `status-${share.status}`;
-      const statusText = share.status.charAt(0).toUpperCase() + share.status.slice(1);
-      
-      let expirationInfo = '';
-      if (share.expires_at && share.status === 'active') {
-        const expiresAt = new Date(share.expires_at);
-        const now = new Date();
-        const timeRemaining = expiresAt - now;
-        
-        if (timeRemaining > 0) {
-          const hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60));
-          const minutesRemaining = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
-          expirationInfo = `<br>Expires in: ${hoursRemaining}h ${minutesRemaining}m`;
-        } else {
-          expirationInfo = '<br>Expired';
-        }
-      } else if (share.status === 'permanent') {
-        expirationInfo = '<br>Permanent access';
-      }
-      
-      shareItem.innerHTML = `
-        <div class="session-info">
-          <div class="session-domain">${share.domain}</div>
-          <div class="session-meta">
-            Shared with: ${share.shared_with_email}<br>
-            Shared: ${new Date(share.shared_at).toLocaleDateString()}<br>
-            <span class="status-badge ${statusClass}">${statusText}</span>
-            ${expirationInfo}
-          </div>
-        </div>
-        <div class="session-actions">
-          ${share.status === 'active' || share.status === 'permanent' ? `
-            <button class="btn btn-sm btn-danger revoke-access-btn" 
-                    data-session-id="${share.session_id}" 
-                    data-email="${share.shared_with_email}">
-              Revoke Access
-            </button>
-          ` : ''}
-        </div>
-      `;
-      mySharesList.appendChild(shareItem);
-    });
-
-    // Attach event listeners to revoke buttons
-    const revokeBtns = mySharesList.querySelectorAll('.revoke-access-btn');
-    revokeBtns.forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const sessionId = btn.getAttribute('data-session-id');
-        const email = btn.getAttribute('data-email');
-        await handleRevokeAccess(sessionId, email);
-      });
-    });
-  }
-
-  async function handleRevokeAccess(sessionId, email) {
-    if (!confirm(`Are you sure you want to revoke access for ${email}? This will immediately log them out if they're currently using this session.`)) {
-      return;
-    }
-
-    try {
-      showStatus('Revoking access...', 'info');
-      
-      const response = await fetch(`${API_BASE}/sessions/${sessionId}/share/${email}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${currentUser.token}`
-        }
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        showStatus(`Access revoked for ${email}`, 'success');
-        
-        // Reload the shares list to show updated status
-        await loadMyShares();
-        
-        // Optionally, you could also trigger a notification or 
-        // implement a push notification system to immediately log out users
-        
-      } else {
-        showStatus(data.error || 'Failed to revoke access', 'error');
-      }
-
-    } catch (error) {
-      console.error('Revoke access error:', error);
-      showStatus('Revoke failed: ' + error.message, 'error');
-    }
-  }
-
   // Make loadSharedSession globally accessible for onclick
   window.loadSharedSession = async (sessionId) => {
     try {
@@ -1352,25 +1178,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(sessionData.error || 'Failed to load shared session');
       }
 
-      console.log('Shared session data:', sessionData);
-
-      // Check if session has expiration info and if it's expired
-      if (sessionData.expiresAt) {
-        const expirationTime = new Date(sessionData.expiresAt).getTime();
-        const now = Date.now();
-        if (now > expirationTime) {
-          const expiredMins = Math.floor((now - expirationTime) / 60000);
-          throw new Error(`Shared session expired ${expiredMins} minutes ago`);
-        }
-        const remainingMins = Math.floor((expirationTime - now) / 60000);
-        console.log(`Shared session has ${remainingMins} minutes remaining until expiration`);
-      }
-
       showStatus(`Importing ${sessionData.cookies.length} cookies...`, 'info');
 
       let successCount = 0;
       let errorCount = 0;
-      const importedCookies = [];
 
       // Import each cookie (same logic as regular session loading)
       for (const cookie of sessionData.cookies) {
@@ -1397,13 +1208,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             cookieDetails.expirationDate = cookie.expirationDate;
           }
 
-          const result = await chrome.cookies.set(cookieDetails);
-          if (result) {
-            importedCookies.push(cookie);
-            successCount++;
-          } else {
-            throw new Error('Cookie.set returned null');
-          }
+          await chrome.cookies.set(cookieDetails);
+          successCount++;
         } catch (cookieError) {
           console.error('Cookie import failed:', cookie.name, cookieError);
           errorCount++;
@@ -1412,54 +1218,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (successCount > 0) {
         showStatus(`Shared session loaded! ${successCount} cookies imported${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
-        
-        // Store session info for auto-logout (if expiration is available)
-        if (sessionData.expiresAt) {
-          const expirationTime = new Date(sessionData.expiresAt).getTime();
-          const sessionInfo = {
-            sessionId: sessionId,
-            domain: sessionData.domain,
-            cookies: importedCookies,
-            autoLogoutTime: expirationTime,
-            importTime: Date.now(),
-            originalExpiration: expirationTime,
-            ownerEmail: sessionData.ownerEmail,
-            isSharedSession: true
-          };
-          
-          await chrome.storage.local.set({ 
-            activeSession: sessionInfo 
-          });
-          
-          // Set up auto-logout alarm
-          const minutesUntilLogout = Math.ceil((expirationTime - Date.now()) / (60 * 1000));
-          if (minutesUntilLogout > 0) {
-            try {
-              if (chrome.alarms) {
-                await chrome.alarms.clear('autoLogout');
-                await chrome.alarms.create('autoLogout', { 
-                  delayInMinutes: minutesUntilLogout 
-                });
-                console.log(`Auto-logout alarm set for ${minutesUntilLogout} minutes`);
-              } else {
-                // Send message to background script to set the alarm
-                chrome.runtime.sendMessage({
-                  action: 'setAutoLogoutAlarm',
-                  delayInMinutes: minutesUntilLogout
-                });
-              }
-            } catch (alarmError) {
-              console.error('Error setting alarm:', alarmError);
-            }
-            
-            // Show active session indicator
-            await checkActiveSession();
-          }
-        } else {
-          // Handle sessions without expiration (permanent access)
-          console.log('Loaded shared session without expiration - permanent access');
-        }
-        
         hideSharedSessionsModal();
         
         // Navigate to the domain
@@ -1501,14 +1259,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function hideSharedSessionsModal() {
     sharedSessionsModal.style.display = 'none';
-  }
-
-  function showManageMySharesModal() {
-    manageMySharesModal.style.display = 'flex';
-  }
-
-  function hideManageMySharesModal() {
-    manageMySharesModal.style.display = 'none';
   }
 
   // ACCESS REQUEST MODAL FUNCTIONS
@@ -1689,8 +1439,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       const response = await fetch(`${API_BASE}/access-requests/${requestId}/approve`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${currentUser.token}`
-        }
+        },
+        body: JSON.stringify({
+          expirationMinutes: 60 // Default to 1 hour, could be made configurable
+        })
       });
 
       const data = await response.json();
@@ -1704,7 +1458,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     } catch (error) {
       console.error('Approve request error:', error);
-      showStatus('Approve failed: ' + error.message, 'error');
+      if (error.message.includes('Failed to fetch')) {
+        showStatus('Cannot connect to server. Please check if the backend is running.', 'error');
+      } else {
+        showStatus('Approve failed: ' + error.message, 'error');
+      }
     }
   }
 
@@ -1715,6 +1473,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const response = await fetch(`${API_BASE}/access-requests/${requestId}/deny`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${currentUser.token}`
         }
       });
@@ -1730,7 +1489,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     } catch (error) {
       console.error('Deny request error:', error);
-      showStatus('Deny failed: ' + error.message, 'error');
+      if (error.message.includes('Failed to fetch')) {
+        showStatus('Cannot connect to server. Please check if the backend is running.', 'error');
+      } else {
+        showStatus('Deny failed: ' + error.message, 'error');
+      }
     }
   }
 
