@@ -29,6 +29,58 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sharedSessionsList = document.getElementById('sharedSessionsList');
   const closeSharedModalBtn = document.getElementById('closeSharedModalBtn');
 
+  // Access request elements
+  const requestAccessBtn = document.getElementById('requestAccessBtn');
+  const requestAccessModal = document.getElementById('requestAccessModal');
+  const requestDomainInput = document.getElementById('requestDomain');
+  const requestMessageInput = document.getElementById('requestMessage');
+  const confirmRequestBtn = document.getElementById('confirmRequestBtn');
+  const cancelRequestBtn = document.getElementById('cancelRequestBtn');
+
+  // View requests elements
+  const viewRequestsBtn = document.getElementById('viewRequestsBtn');
+  const viewRequestsModal = document.getElementById('viewRequestsModal');
+  const viewRequestsList = document.getElementById('viewRequestsList');
+  const closeViewRequestsBtn = document.getElementById('closeViewRequestsBtn');
+
+  // Manage requests elements
+  const manageRequestsBtn = document.getElementById('manageRequestsBtn');
+  const manageRequestsModal = document.getElementById('manageRequestsModal');
+  const manageRequestsList = document.getElementById('manageRequestsList');
+  const closeManageRequestsBtn = document.getElementById('closeManageRequestsBtn');
+
+  // Friends elements
+  const friendsBtn = document.getElementById('friendsBtn');
+  const friendsModal = document.getElementById('friendsModal');
+  const friendsList = document.getElementById('friendsList');
+  const closeFriendsBtn = document.getElementById('closeFriendsBtn');
+
+  // Add friend elements
+  const addFriendBtn = document.getElementById('addFriendBtn');
+  const addFriendModal = document.getElementById('addFriendModal');
+  const friendEmailInput = document.getElementById('friendEmail');
+  const friendRequestMessageInput = document.getElementById('friendRequestMessage');
+  const confirmAddFriendBtn = document.getElementById('confirmAddFriendBtn');
+  const cancelAddFriendBtn = document.getElementById('cancelAddFriendBtn');
+
+  // Friend requests elements
+  const friendRequestsBtn = document.getElementById('friendRequestsBtn');
+  const friendRequestsModal = document.getElementById('friendRequestsModal');
+  const incomingFriendRequestsTab = document.getElementById('incomingFriendRequestsTab');
+  const outgoingFriendRequestsTab = document.getElementById('outgoingFriendRequestsTab');
+  const incomingFriendRequestsList = document.getElementById('incomingFriendRequestsList');
+  const outgoingFriendRequestsList = document.getElementById('outgoingFriendRequestsList');
+  const closeFriendRequestsBtn = document.getElementById('closeFriendRequestsBtn');
+
+  // Request access from friends elements
+  const requestAccessFromFriendsModal = document.getElementById('requestAccessFromFriendsModal');
+  const requestFromFriendsDomainInput = document.getElementById('requestFromFriendsDomain');
+  const requestFromFriendsMessageInput = document.getElementById('requestFromFriendsMessage');
+  const friendsWithSessionsList = document.getElementById('friendsWithSessionsList');
+  const confirmRequestFromFriendsBtn = document.getElementById('confirmRequestFromFriendsBtn');
+  const cancelRequestFromFriendsBtn = document.getElementById('cancelRequestFromFriendsBtn');
+  const closeRequestAccessFromFriendsBtn = document.getElementById('closeRequestAccessFromFriendsBtn');
+
   const API_BASE = 'http://localhost:3000/api'; // Replace with your server URL
   let currentTab = null;
   let currentDomain = '';
@@ -457,6 +509,288 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // ACCESS REQUEST EVENT LISTENERS
+
+  // Request access functionality (now works with friends)
+  requestAccessBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    await showRequestAccessFromFriendsModal();
+  });
+
+  confirmRequestBtn.addEventListener('click', async () => {
+    const message = requestMessageInput.value.trim();
+    
+    try {
+      showStatus('Sending access request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/access-requests`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`
+        },
+        body: JSON.stringify({ 
+          domain: currentDomain,
+          url: currentTab.url,
+          message: message || `Access request for ${currentDomain}`
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        hideRequestAccessModal();
+      } else {
+        showStatus(data.error || 'Failed to send access request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Access request error:', error);
+      showStatus('Request failed: ' + error.message, 'error');
+    }
+  });
+
+  cancelRequestBtn.addEventListener('click', () => {
+    hideRequestAccessModal();
+  });
+
+  // View requests functionality
+  viewRequestsBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    showViewRequestsModal();
+    await loadUserRequests();
+  });
+
+  closeViewRequestsBtn.addEventListener('click', () => {
+    hideViewRequestsModal();
+  });
+
+  // Manage requests functionality
+  manageRequestsBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    showManageRequestsModal();
+    await loadIncomingRequests();
+  });
+
+  closeManageRequestsBtn.addEventListener('click', () => {
+    hideManageRequestsModal();
+  });
+
+  // Close modals when clicking outside
+  requestAccessModal.addEventListener('click', (e) => {
+    if (e.target === requestAccessModal) {
+      hideRequestAccessModal();
+    }
+  });
+
+  viewRequestsModal.addEventListener('click', (e) => {
+    if (e.target === viewRequestsModal) {
+      hideViewRequestsModal();
+    }
+  });
+
+  manageRequestsModal.addEventListener('click', (e) => {
+    if (e.target === manageRequestsModal) {
+      hideManageRequestsModal();
+    }
+  });
+
+  // FRIENDS SYSTEM EVENT LISTENERS
+
+  // Friends functionality
+  friendsBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    showFriendsModal();
+    await loadFriends();
+  });
+
+  closeFriendsBtn.addEventListener('click', () => {
+    hideFriendsModal();
+  });
+
+  // Add friend functionality
+  addFriendBtn.addEventListener('click', () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    showAddFriendModal();
+  });
+
+  confirmAddFriendBtn.addEventListener('click', async () => {
+    const email = friendEmailInput.value.trim();
+    const message = friendRequestMessageInput.value.trim();
+    
+    if (!email) {
+      showStatus('Please enter an email address', 'error');
+      return;
+    }
+    
+    if (!isValidEmail(email)) {
+      showStatus('Please enter a valid email address', 'error');
+      return;
+    }
+
+    try {
+      showStatus('Sending friend request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/friends/request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`
+        },
+        body: JSON.stringify({ email, message })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        hideAddFriendModal();
+      } else {
+        showStatus(data.error || 'Failed to send friend request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Friend request error:', error);
+      showStatus('Request failed: ' + error.message, 'error');
+    }
+  });
+
+  cancelAddFriendBtn.addEventListener('click', () => {
+    hideAddFriendModal();
+  });
+
+  // Friend requests functionality
+  friendRequestsBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+    showFriendRequestsModal();
+    await loadIncomingFriendRequests();
+  });
+
+  closeFriendRequestsBtn.addEventListener('click', () => {
+    hideFriendRequestsModal();
+  });
+
+  // Tab switching for friend requests
+  incomingFriendRequestsTab.addEventListener('click', async () => {
+    incomingFriendRequestsTab.classList.add('active');
+    outgoingFriendRequestsTab.classList.remove('active');
+    incomingFriendRequestsList.style.display = 'block';
+    outgoingFriendRequestsList.style.display = 'none';
+    await loadIncomingFriendRequests();
+  });
+
+  outgoingFriendRequestsTab.addEventListener('click', async () => {
+    outgoingFriendRequestsTab.classList.add('active');
+    incomingFriendRequestsTab.classList.remove('active');
+    outgoingFriendRequestsList.style.display = 'block';
+    incomingFriendRequestsList.style.display = 'none';
+    await loadOutgoingFriendRequests();
+  });
+
+  // Request access from friends functionality
+  confirmRequestFromFriendsBtn.addEventListener('click', async () => {
+    const message = requestFromFriendsMessageInput.value.trim();
+    const selectedFriends = Array.from(friendsWithSessionsList.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(checkbox => parseInt(checkbox.value));
+    
+    if (selectedFriends.length === 0) {
+      showStatus('Please select at least one friend', 'error');
+      return;
+    }
+
+    try {
+      showStatus('Sending access requests...', 'info');
+      
+      let successCount = 0;
+      for (const friendId of selectedFriends) {
+        try {
+          const response = await fetch(`${API_BASE}/access-requests`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${currentUser.token}`
+            },
+            body: JSON.stringify({ 
+              domain: currentDomain,
+              url: currentTab.url,
+              message: message || `Access request for ${currentDomain}`,
+              friendId: friendId
+            })
+          });
+
+          if (response.ok) {
+            successCount++;
+          }
+        } catch (err) {
+          console.error('Error sending request to friend:', friendId, err);
+        }
+      }
+
+      if (successCount > 0) {
+        showStatus(`Access requests sent to ${successCount} friend(s)`, 'success');
+        hideRequestAccessFromFriendsModal();
+      } else {
+        showStatus('Failed to send any requests', 'error');
+      }
+
+    } catch (error) {
+      console.error('Access request error:', error);
+      showStatus('Request failed: ' + error.message, 'error');
+    }
+  });
+
+  cancelRequestFromFriendsBtn.addEventListener('click', () => {
+    hideRequestAccessFromFriendsModal();
+  });
+
+  closeRequestAccessFromFriendsBtn.addEventListener('click', () => {
+    hideRequestAccessFromFriendsModal();
+  });
+
+  // Close modals when clicking outside
+  friendsModal.addEventListener('click', (e) => {
+    if (e.target === friendsModal) {
+      hideFriendsModal();
+    }
+  });
+
+  addFriendModal.addEventListener('click', (e) => {
+    if (e.target === addFriendModal) {
+      hideAddFriendModal();
+    }
+  });
+
+  friendRequestsModal.addEventListener('click', (e) => {
+    if (e.target === friendRequestsModal) {
+      hideFriendRequestsModal();
+    }
+  });
+
+  requestAccessFromFriendsModal.addEventListener('click', (e) => {
+    if (e.target === requestAccessFromFriendsModal) {
+      hideRequestAccessFromFriendsModal();
+    }
+  });
+
   async function loadUserSessions() {
     if (!currentUser) return;
 
@@ -656,6 +990,616 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function hideSharedSessionsModal() {
     sharedSessionsModal.style.display = 'none';
+  }
+
+  // ACCESS REQUEST MODAL FUNCTIONS
+
+  function showRequestAccessModal() {
+    requestDomainInput.value = currentDomain;
+    requestAccessModal.style.display = 'flex';
+    requestMessageInput.focus();
+  }
+
+  function hideRequestAccessModal() {
+    requestAccessModal.style.display = 'none';
+    requestMessageInput.value = '';
+  }
+
+  function showViewRequestsModal() {
+    viewRequestsModal.style.display = 'flex';
+  }
+
+  function hideViewRequestsModal() {
+    viewRequestsModal.style.display = 'none';
+  }
+
+  function showManageRequestsModal() {
+    manageRequestsModal.style.display = 'flex';
+  }
+
+  function hideManageRequestsModal() {
+    manageRequestsModal.style.display = 'none';
+  }
+
+  // LOAD REQUESTS FUNCTIONS
+
+  async function loadUserRequests() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/access-requests/outgoing`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const requests = await response.json();
+
+      if (response.ok) {
+        displayUserRequests(requests);
+      } else {
+        console.error('Failed to load user requests:', requests.error);
+        viewRequestsList.innerHTML = '<div class="no-requests">Failed to load requests</div>';
+      }
+    } catch (error) {
+      console.error('Load user requests error:', error);
+      viewRequestsList.innerHTML = '<div class="no-requests">Error loading requests</div>';
+    }
+  }
+
+  async function loadIncomingRequests() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/access-requests/incoming`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const requests = await response.json();
+
+      if (response.ok) {
+        displayIncomingRequests(requests);
+      } else {
+        console.error('Failed to load incoming requests:', requests.error);
+        manageRequestsList.innerHTML = '<div class="no-requests">Failed to load requests</div>';
+      }
+    } catch (error) {
+      console.error('Load incoming requests error:', error);
+      manageRequestsList.innerHTML = '<div class="no-requests">Error loading requests</div>';
+    }
+  }
+
+  function displayUserRequests(requests) {
+    viewRequestsList.innerHTML = '';
+    
+    if (!requests || !Array.isArray(requests) || requests.length === 0) {
+      viewRequestsList.innerHTML = '<div class="no-requests">No access requests found</div>';
+      return;
+    }
+
+    requests.forEach(request => {
+      const requestItem = document.createElement('div');
+      requestItem.className = 'request-item';
+      
+      const statusClass = `status-${request.status}`;
+      const statusText = request.status.charAt(0).toUpperCase() + request.status.slice(1);
+      
+      requestItem.innerHTML = `
+        <div class="request-info">
+          <div class="request-domain">${request.domain}</div>
+          <div class="request-meta">
+            To: ${request.ownerEmail}<br>
+            Sent: ${new Date(request.created_at).toLocaleDateString()}<br>
+            <span class="status-badge ${statusClass}">${statusText}</span>
+          </div>
+          ${request.message ? `<div class="request-message">"${request.message}"</div>` : ''}
+        </div>
+      `;
+      
+      viewRequestsList.appendChild(requestItem);
+    });
+  }
+
+  function displayIncomingRequests(requests) {
+    manageRequestsList.innerHTML = '';
+    
+    if (!requests || !Array.isArray(requests) || requests.length === 0) {
+      manageRequestsList.innerHTML = '<div class="no-requests">No incoming access requests</div>';
+      return;
+    }
+
+    requests.forEach(request => {
+      const requestItem = document.createElement('div');
+      requestItem.className = 'request-item';
+      
+      const isPending = request.status === 'pending';
+      const statusClass = `status-${request.status}`;
+      const statusText = request.status.charAt(0).toUpperCase() + request.status.slice(1);
+      
+      requestItem.innerHTML = `
+        <div class="request-info">
+          <div class="request-domain">${request.domain}</div>
+          <div class="request-meta">
+            From: ${request.requesterEmail}<br>
+            Received: ${new Date(request.created_at).toLocaleDateString()}<br>
+            Sessions: ${request.sessionCount || 0}<br>
+            <span class="status-badge ${statusClass}">${statusText}</span>
+          </div>
+          ${request.message ? `<div class="request-message">"${request.message}"</div>` : ''}
+        </div>
+        <div class="request-actions">
+          ${isPending ? `
+            <button class="btn btn-success approve-btn" data-request-id="${request.id}">
+              Approve
+            </button>
+            <button class="btn btn-danger deny-btn" data-request-id="${request.id}">
+              Deny
+            </button>
+          ` : ''}
+        </div>
+      `;
+      
+      manageRequestsList.appendChild(requestItem);
+    });
+
+    // Attach event listeners to approve/deny buttons
+    const approveBtns = manageRequestsList.querySelectorAll('.approve-btn');
+    const denyBtns = manageRequestsList.querySelectorAll('.deny-btn');
+
+    approveBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const requestId = btn.getAttribute('data-request-id');
+        await handleApproveRequest(requestId);
+      });
+    });
+
+    denyBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const requestId = btn.getAttribute('data-request-id');
+        await handleDenyRequest(requestId);
+      });
+    });
+  }
+
+  async function handleApproveRequest(requestId) {
+    try {
+      showStatus('Approving request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/access-requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        await loadIncomingRequests(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to approve request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Approve request error:', error);
+      showStatus('Approve failed: ' + error.message, 'error');
+    }
+  }
+
+  async function handleDenyRequest(requestId) {
+    try {
+      showStatus('Denying request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/access-requests/${requestId}/deny`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        await loadIncomingRequests(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to deny request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Deny request error:', error);
+      showStatus('Deny failed: ' + error.message, 'error');
+    }
+  }
+
+  // FRIENDS SYSTEM HELPER FUNCTIONS
+
+  function showFriendsModal() {
+    friendsModal.style.display = 'flex';
+  }
+
+  function hideFriendsModal() {
+    friendsModal.style.display = 'none';
+  }
+
+  function showAddFriendModal() {
+    addFriendModal.style.display = 'flex';
+    friendEmailInput.focus();
+  }
+
+  function hideAddFriendModal() {
+    addFriendModal.style.display = 'none';
+    friendEmailInput.value = '';
+    friendRequestMessageInput.value = '';
+  }
+
+  function showFriendRequestsModal() {
+    friendRequestsModal.style.display = 'flex';
+  }
+
+  function hideFriendRequestsModal() {
+    friendRequestsModal.style.display = 'none';
+  }
+
+  async function showRequestAccessFromFriendsModal() {
+    requestFromFriendsDomainInput.value = currentDomain;
+    await loadFriendsWithSessions();
+    requestAccessFromFriendsModal.style.display = 'flex';
+  }
+
+  function hideRequestAccessFromFriendsModal() {
+    requestAccessFromFriendsModal.style.display = 'none';
+    requestFromFriendsMessageInput.value = '';
+    // Uncheck all checkboxes
+    friendsWithSessionsList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+  }
+
+  async function loadFriends() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/friends`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const friends = await response.json();
+
+      if (response.ok) {
+        displayFriends(friends);
+      } else {
+        console.error('Failed to load friends:', friends.error);
+        friendsList.innerHTML = '<div class="no-friends">Failed to load friends</div>';
+      }
+    } catch (error) {
+      console.error('Load friends error:', error);
+      friendsList.innerHTML = '<div class="no-friends">Error loading friends</div>';
+    }
+  }
+
+  function displayFriends(friends) {
+    friendsList.innerHTML = '';
+    
+    if (!friends || !Array.isArray(friends) || friends.length === 0) {
+      friendsList.innerHTML = '<div class="no-friends">No friends yet. Add some friends to start sharing sessions!</div>';
+      return;
+    }
+
+    friends.forEach(friend => {
+      const friendItem = document.createElement('div');
+      friendItem.className = 'friend-item';
+      
+      friendItem.innerHTML = `
+        <div class="friend-info">
+          <div class="friend-email">${friend.friendemail}</div>
+          <div class="friend-meta">
+            Friends since: ${new Date(friend.friendssince).toLocaleDateString()}
+          </div>
+        </div>
+        <div class="friend-actions">
+          <button class="btn btn-danger remove-friend-btn" data-friend-id="${friend.friendid}">
+            Remove
+          </button>
+        </div>
+      `;
+      
+      friendsList.appendChild(friendItem);
+    });
+
+    // Attach event listeners to remove friend buttons
+    const removeBtns = friendsList.querySelectorAll('.remove-friend-btn');
+    removeBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const friendId = btn.getAttribute('data-friend-id');
+        if (confirm('Are you sure you want to remove this friend?')) {
+          await handleRemoveFriend(friendId);
+        }
+      });
+    });
+  }
+
+  async function loadIncomingFriendRequests() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/friends/requests/incoming`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const requests = await response.json();
+
+      if (response.ok) {
+        displayIncomingFriendRequests(requests);
+      } else {
+        console.error('Failed to load incoming friend requests:', requests.error);
+        incomingFriendRequestsList.innerHTML = '<div class="no-requests">Failed to load requests</div>';
+      }
+    } catch (error) {
+      console.error('Load incoming friend requests error:', error);
+      incomingFriendRequestsList.innerHTML = '<div class="no-requests">Error loading requests</div>';
+    }
+  }
+
+  async function loadOutgoingFriendRequests() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/friends/requests/outgoing`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const requests = await response.json();
+
+      if (response.ok) {
+        displayOutgoingFriendRequests(requests);
+      } else {
+        console.error('Failed to load outgoing friend requests:', requests.error);
+        outgoingFriendRequestsList.innerHTML = '<div class="no-requests">Failed to load requests</div>';
+      }
+    } catch (error) {
+      console.error('Load outgoing friend requests error:', error);
+      outgoingFriendRequestsList.innerHTML = '<div class="no-requests">Error loading requests</div>';
+    }
+  }
+
+  function displayIncomingFriendRequests(requests) {
+    incomingFriendRequestsList.innerHTML = '';
+    
+    if (!requests || !Array.isArray(requests) || requests.length === 0) {
+      incomingFriendRequestsList.innerHTML = '<div class="no-requests">No incoming friend requests</div>';
+      return;
+    }
+
+    requests.forEach(request => {
+      const requestItem = document.createElement('div');
+      requestItem.className = 'request-item';
+      
+      requestItem.innerHTML = `
+        <div class="request-info">
+          <div class="request-domain">${request.senderemail}</div>
+          <div class="request-meta">
+            Received: ${new Date(request.created_at).toLocaleDateString()}
+          </div>
+          ${request.message ? `<div class="request-message">"${request.message}"</div>` : ''}
+        </div>
+        <div class="request-actions">
+          <button class="btn btn-success accept-friend-btn" data-request-id="${request.id}">
+            Accept
+          </button>
+          <button class="btn btn-danger decline-friend-btn" data-request-id="${request.id}">
+            Decline
+          </button>
+        </div>
+      `;
+      
+      incomingFriendRequestsList.appendChild(requestItem);
+    });
+
+    // Attach event listeners
+    const acceptBtns = incomingFriendRequestsList.querySelectorAll('.accept-friend-btn');
+    const declineBtns = incomingFriendRequestsList.querySelectorAll('.decline-friend-btn');
+
+    acceptBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const requestId = btn.getAttribute('data-request-id');
+        await handleAcceptFriendRequest(requestId);
+      });
+    });
+
+    declineBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const requestId = btn.getAttribute('data-request-id');
+        await handleDeclineFriendRequest(requestId);
+      });
+    });
+  }
+
+  function displayOutgoingFriendRequests(requests) {
+    outgoingFriendRequestsList.innerHTML = '';
+    
+    if (!requests || !Array.isArray(requests) || requests.length === 0) {
+      outgoingFriendRequestsList.innerHTML = '<div class="no-requests">No outgoing friend requests</div>';
+      return;
+    }
+
+    requests.forEach(request => {
+      const requestItem = document.createElement('div');
+      requestItem.className = 'request-item';
+      
+      const statusClass = `status-${request.status}`;
+      const statusText = request.status.charAt(0).toUpperCase() + request.status.slice(1);
+      
+      requestItem.innerHTML = `
+        <div class="request-info">
+          <div class="request-domain">${request.receiveremail}</div>
+          <div class="request-meta">
+            Sent: ${new Date(request.created_at).toLocaleDateString()}<br>
+            <span class="status-badge ${statusClass}">${statusText}</span>
+          </div>
+          ${request.message ? `<div class="request-message">"${request.message}"</div>` : ''}
+        </div>
+      `;
+      
+      outgoingFriendRequestsList.appendChild(requestItem);
+    });
+  }
+
+  async function loadFriendsWithSessions() {
+    if (!currentUser) return;
+
+    try {
+      // First get all friends
+      const friendsResponse = await fetch(`${API_BASE}/friends`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const friends = await friendsResponse.json();
+
+      if (!friendsResponse.ok) {
+        throw new Error('Failed to load friends');
+      }
+
+      // Filter friends who have sessions for current domain
+      const friendsWithSessions = [];
+      for (const friend of friends) {
+        try {
+          // This is a simplified approach - in a real app you'd want a dedicated endpoint
+          // For now, we'll show all friends and let the backend handle the filtering
+          friendsWithSessions.push({
+            ...friend,
+            sessionCount: '?' // We don't know the exact count without additional API call
+          });
+        } catch (err) {
+          console.error('Error checking friend sessions:', err);
+        }
+      }
+
+      displayFriendsWithSessions(friendsWithSessions);
+
+    } catch (error) {
+      console.error('Load friends with sessions error:', error);
+      friendsWithSessionsList.innerHTML = '<div class="no-friends-with-sessions">Error loading friends</div>';
+    }
+  }
+
+  function displayFriendsWithSessions(friends) {
+    friendsWithSessionsList.innerHTML = '';
+    
+    if (!friends || !Array.isArray(friends) || friends.length === 0) {
+      friendsWithSessionsList.innerHTML = '<div class="no-friends-with-sessions">No friends available. Add some friends first!</div>';
+      return;
+    }
+
+    friends.forEach(friend => {
+      const friendItem = document.createElement('div');
+      friendItem.className = 'friend-selection-item';
+      
+      friendItem.innerHTML = `
+        <input type="checkbox" value="${friend.friendid}" id="friend-${friend.friendid}">
+        <div class="friend-selection-info">
+          <div class="friend-selection-email">${friend.friendemail}</div>
+          <div class="friend-selection-sessions">Will check if they have sessions for ${currentDomain}</div>
+        </div>
+      `;
+      
+      friendsWithSessionsList.appendChild(friendItem);
+
+      // Make the whole item clickable
+      friendItem.addEventListener('click', (e) => {
+        if (e.target.type !== 'checkbox') {
+          const checkbox = friendItem.querySelector('input[type="checkbox"]');
+          checkbox.checked = !checkbox.checked;
+        }
+      });
+    });
+  }
+
+  async function handleAcceptFriendRequest(requestId) {
+    try {
+      showStatus('Accepting friend request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/friends/requests/${requestId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        await loadIncomingFriendRequests(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to accept friend request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Accept friend request error:', error);
+      showStatus('Accept failed: ' + error.message, 'error');
+    }
+  }
+
+  async function handleDeclineFriendRequest(requestId) {
+    try {
+      showStatus('Declining friend request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/friends/requests/${requestId}/decline`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        await loadIncomingFriendRequests(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to decline friend request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Decline friend request error:', error);
+      showStatus('Decline failed: ' + error.message, 'error');
+    }
+  }
+
+  async function handleRemoveFriend(friendId) {
+    try {
+      showStatus('Removing friend...', 'info');
+      
+      const response = await fetch(`${API_BASE}/friends/${friendId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        await loadFriends(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to remove friend', 'error');
+      }
+
+    } catch (error) {
+      console.error('Remove friend error:', error);
+      showStatus('Remove failed: ' + error.message, 'error');
+    }
   }
 
   function isValidEmail(email) {
