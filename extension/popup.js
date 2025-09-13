@@ -326,7 +326,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         timerInterval = null;
       }
       
-      showStatus('Session cleared - you have been logged out', 'success');
+      // Friendlier message when auto-logout or manual end occurs
+      showStatus('Shared session ended. Cookies cleared.', 'success');
     }
   }
 

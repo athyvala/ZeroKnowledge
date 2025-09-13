@@ -46,8 +46,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         chrome.notifications.create('sessionExpired', {
           type: 'basic',
           iconUrl: 'icons/icon128.png',
-          title: 'Session Expired',
-          message: `You have been logged out of ${session.domain}`,
+          title: 'Session Ended',
+          message: `Auto-logout complete for ${session.domain}`,
           priority: 2
         });
       } catch (notifError) {
