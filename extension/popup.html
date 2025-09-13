@@ -356,6 +356,7 @@
         <button id="loadSessionBtn" class="btn btn-primary">Load</button>
         <button id="shareSessionBtn" class="btn btn-secondary">Share</button>
         <button id="deleteSessionBtn" class="btn btn-danger">Delete</button>
+         <button id="manageSharesBtn" class="btn btn-outline">Manage Shares</button>
       </div>
 
       <div class="divider"></div>
@@ -374,6 +375,8 @@
         <div class="form-group">
           <label for="shareEmail">Share with email:</label>
           <input type="email" id="shareEmail" placeholder="Enter email address" required>
+          <label for="shareexpiration">expiration (date & time):</label>
+          <input type="datetime-local" id="shareexpiration" required>
         </div>
         <div class="btn-row">
           <button id="confirmShareBtn" class="btn btn-primary">Share</button>
@@ -394,6 +397,19 @@
         </div>
       </div>
     </div>
+
+      <!-- Manage Shares Modal -->
+      <div id="manageSharesModal" class="modal">
+        <div class="modal-content modal-large">
+          <div class="modal-header">
+            <h3>Manage Shared Users</h3>
+            <button id="closeManageSharesBtn" class="btn btn-sm btn-secondary">×</button>
+          </div>
+          <div id="manageSharesList" class="shared-sessions-list">
+            <!-- Shared users will be populated here -->
+          </div>
+        </div>
+      </div>
   </div>
 
   <script src="popup.js"></script>

@@ -16,10 +16,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   const status = document.getElementById('status');
   const domainEl = document.getElementById('currentDomain');
 
+    // Manage shares elements
+    const manageSharesBtn = document.getElementById('manageSharesBtn');
+    const manageSharesModal = document.getElementById('manageSharesModal');
+    const manageSharesList = document.getElementById('manageSharesList');
+    const closeManageSharesBtn = document.getElementById('closeManageSharesBtn');
+
   // Share session elements
   const shareSessionBtn = document.getElementById('shareSessionBtn');
   const shareModal = document.getElementById('shareModal');
   const shareEmailInput = document.getElementById('shareEmail');
+  const shareexpirationInput = document.getElementById('shareexpiration');
   const confirmShareBtn = document.getElementById('confirmShareBtn');
   const cancelShareBtn = document.getElementById('cancelShareBtn');
 
@@ -387,6 +394,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   confirmShareBtn.addEventListener('click', async () => {
     const sessionId = sessionsDropdown.value;
     const shareEmail = shareEmailInput.value.trim();
+      const expirationValue = shareexpirationInput.value;
+      let expiration = null;
+      if (expirationValue) {
+        expiration = new Date(expirationValue).toISOString();
+      }
     
     if (!sessionId) {
       showStatus('Please select a session to share', 'error');
@@ -406,20 +418,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       showStatus('Sharing session...', 'info');
       
-      const response = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentUser.token}`
-        },
-        body: JSON.stringify({ email: shareEmail })
-      });
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser.token}`
+          },
+          body: JSON.stringify({ email: shareEmail, expiration: expiration })
+        });
 
       const data = await response.json();
 
       if (response.ok) {
         showStatus('Session shared successfully!', 'success');
         hideShareModal();
+          shareexpirationInput.value = '';
       } else {
         showStatus(data.error || 'Failed to share session', 'error');
       }
@@ -525,25 +538,83 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Displaying', sessions.length, 'shared sessions');
 
     sessions.forEach((session, index) => {
-      console.log(`Creating session item ${index}:`, session);
-      
       const sessionItem = document.createElement('div');
       sessionItem.className = 'shared-session-item';
-        sessionItem.innerHTML = `
-          <div class="session-info">
-            <div class="session-domain">${session.domain || 'Unknown domain'}</div>
-            <div class="session-meta">
-              Shared by: ${session.ownerEmail || 'Unknown'}<br>
-              Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
-            </div>
+
+      // Format expiration in EST
+      function toESTString(dateStr) {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      }
+
+      // Timer logic
+      let countdownId = `countdown-${session.id}`;
+      let expiration = session.expiration;
+      let expDate = expiration ? new Date(expiration) : null;
+
+      sessionItem.innerHTML = `
+        <div class="session-info">
+          <div class="session-domain">${session.domain || 'Unknown domain'}</div>
+          <div class="session-meta">
+            Shared by: ${session.ownerEmail || 'Unknown'}<br>
+            expiration: ${expiration ? toESTString(expiration) + ' EST' : 'No expiration'}<br>
+            <span class="countdown" id="${countdownId}"></span>
           </div>
-          <div class="session-actions">
-            <button class="btn btn-sm btn-primary shared-load-btn" data-session-id="${session.id}">
-              Load Session
-            </button>
-          </div>
-        `;
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-sm btn-primary shared-load-btn" data-session-id="${session.id}">
+            Load Session
+          </button>
+          <button class="btn btn-sm btn-danger shared-delete-btn" data-session-id="${session.id}">
+            Delete
+          </button>
+        </div>
+      `;
       sharedSessionsList.appendChild(sessionItem);
+
+      // Countdown timer
+      if (expDate) {
+        function updateCountdown() {
+          const now = new Date();
+          let diff = expDate - now;
+          if (diff <= 0) {
+            document.getElementById(countdownId).textContent = 'Expired';
+            sessionItem.style.display = 'none'; // Hide expired
+            return;
+          }
+          let hours = Math.floor(diff / (1000 * 60 * 60));
+          let minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          let seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          document.getElementById(countdownId).textContent = `Time left: ${hours}h ${minutes}m ${seconds}s`;
+        }
+        updateCountdown();
+        setInterval(updateCountdown, 1000);
+      }
+
+      // Delete button event
+      const deleteBtn = sessionItem.querySelector('.shared-delete-btn');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+          if (!confirm('Are you sure you want to remove your access to this shared session?')) return;
+          try {
+            const response = await fetch(`${API_BASE}/sessions/shared/${session.id}`, {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${currentUser.token}`
+              }
+            });
+            const data = await response.json();
+            if (response.ok) {
+              showStatus('Access to shared session removed', 'success');
+              sessionItem.style.display = 'none';
+            } else {
+              showStatus(data.error || 'Failed to remove access', 'error');
+            }
+          } catch (error) {
+            showStatus('Error removing access to shared session', 'error');
+          }
+        });
+      }
     });
     
     console.log('Finished displaying shared sessions');
@@ -650,6 +721,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+    function showManageSharesModal() {
+      manageSharesModal.style.display = 'flex';
+    }
+
+    function hideManageSharesModal() {
+      manageSharesModal.style.display = 'none';
+    }
+
   function showSharedSessionsModal() {
     sharedSessionsModal.style.display = 'flex';
   }
@@ -674,4 +753,158 @@ document.addEventListener('DOMContentLoaded', async () => {
       }, 3000);
     }
   }
+
+    // Manage Shares functionality
+    manageSharesBtn.addEventListener('click', async () => {
+      const sessionId = sessionsDropdown.value;
+      if (!sessionId) {
+        showStatus('Please select a session to manage shares', 'error');
+        return;
+      }
+      showManageSharesModal();
+      await loadSessionShares(sessionId);
+    });
+
+    closeManageSharesBtn.addEventListener('click', () => {
+      hideManageSharesModal();
+    });
+
+    manageSharesModal.addEventListener('click', (e) => {
+      if (e.target === manageSharesModal) {
+        hideManageSharesModal();
+      }
+    });
+
+    async function loadSessionShares(sessionId) {
+      if (!currentUser) return;
+      try {
+        manageSharesList.innerHTML = '<div class="no-sessions">Loading shared users...</div>';
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}/shares`, {
+          headers: {
+            'Authorization': `Bearer ${currentUser.token}`
+          }
+        });
+        const shares = await response.json();
+        if (response.ok) {
+          displaySessionShares(sessionId, shares);
+        } else {
+          manageSharesList.innerHTML = `<div class="no-sessions">${shares.error || 'Failed to load shared users'}</div>`;
+        }
+      } catch (error) {
+        manageSharesList.innerHTML = `<div class="no-sessions">Error loading shared users</div>`;
+      }
+    }
+
+    function displaySessionShares(sessionId, shares) {
+      manageSharesList.innerHTML = '';
+      if (!shares || !Array.isArray(shares) || shares.length === 0) {
+        manageSharesList.innerHTML = '<div class="no-sessions">No users have access to this session</div>';
+        return;
+      }
+      function toESTString(dateStr) {
+        if (!dateStr) return '';
+        return new Date(dateStr).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      }
+
+      function toDatetimeLocalValue(dateStr) {
+        if (!dateStr) return '';
+        const est = new Date(new Date(dateStr).toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const pad = n => n.toString().padStart(2, '0');
+        return `${est.getFullYear()}-${pad(est.getMonth()+1)}-${pad(est.getDate())}T${pad(est.getHours())}:${pad(est.getMinutes())}`;
+      }
+
+      shares.forEach((share, idx) => {
+        const item = document.createElement('div');
+        item.className = 'shared-session-item';
+        const estSharedAt = toESTString(share.shared_at);
+        const estexpiration = toESTString(share.expiration);
+          item.innerHTML = `
+            <div class="session-info">
+              <div class="session-domain">${share.email}</div>
+              <div class="session-meta">
+                Shared at: ${estSharedAt || 'Unknown'} <span class="shared-at-est">EST</span><br>
+                expiration: <input type="datetime-local" class="expiration-input" data-email="${share.email}" value="${share.expiration ? toDatetimeLocalValue(share.expiration) : ''}">
+                <span class="expiration-est">(EST: ${estexpiration || 'N/A'})</span>
+                <button class="btn btn-sm btn-outline update-expiration-btn" data-email="${share.email}" data-session-id="${sessionId}">Update</button>
+              </div>
+            </div>
+            <div class="session-actions">
+              <button class="btn btn-sm btn-danger revoke-share-btn" data-email="${share.email}" data-session-id="${sessionId}">Revoke</button>
+            </div>
+          `;
+        manageSharesList.appendChild(item);
+      });
+      // Attach event listeners
+      const revokeBtns = manageSharesList.querySelectorAll('.revoke-share-btn');
+      revokeBtns.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const email = btn.getAttribute('data-email');
+          const sessionId = btn.getAttribute('data-session-id');
+          if (!confirm(`Revoke access for ${email}?`)) return;
+          await revokeSessionShare(sessionId, email);
+          await loadSessionShares(sessionId);
+        });
+      });
+        // Attach event listeners for expiration update
+        const updateBtns = manageSharesList.querySelectorAll('.update-expiration-btn');
+        updateBtns.forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const email = btn.getAttribute('data-email');
+            const sessionId = btn.getAttribute('data-session-id');
+            const input = manageSharesList.querySelector(`.expiration-input[data-email='${email}']`);
+            const expirationValue = input.value;
+            if (!expirationValue) {
+              showStatus('Please select an expiration date/time', 'error');
+              return;
+            }
+            const expiration = new Date(expirationValue).toISOString();
+            await updateSessionShareexpiration(sessionId, email, expiration);
+            await loadSessionShares(sessionId);
+          });
+        });
+    }
+
+      async function updateSessionShareexpiration(sessionId, email, expiration) {
+        try {
+          showStatus(`Updating expiration for ${email}...`, 'info');
+          const response = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${currentUser.token}`
+            },
+            body: JSON.stringify({ email, expiration })
+          });
+          const data = await response.json();
+          if (response.ok) {
+            showStatus(`expiration updated for ${email}`, 'success');
+          } else {
+            showStatus(data.error || 'Failed to update expiration', 'error');
+          }
+        } catch (error) {
+          showStatus('Error updating expiration', 'error');
+        }
+      }
+
+    async function revokeSessionShare(sessionId, email) {
+      try {
+        showStatus(`Revoking access for ${email}...`, 'info');
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}/share`, {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentUser.token}`
+          },
+          body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          showStatus(`Access revoked for ${email}`, 'success');
+        } else {
+          showStatus(data.error || 'Failed to revoke access', 'error');
+        }
+      } catch (error) {
+        showStatus('Error revoking access', 'error');
+      }
+    }
 });

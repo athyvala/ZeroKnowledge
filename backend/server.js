@@ -42,6 +42,8 @@ const authenticateToken = (req, res, next) => {
 };
 
 // Helper functions
+// Convert UTC date to EST/EDT string
+
 const hashPassword = async (password) => {
   return await bcrypt.hash(password, 10);
 };
@@ -186,16 +188,25 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
     SELECT 
       s.id, s.domain, s.url, s.created_at, s.updated_at,
       owner.email as ownerEmail,
-      ss.shared_at
+      ss.shared_at,
+      ss.expiration
     FROM sessions s
     JOIN session_shares ss ON s.id = ss.session_id
     JOIN users owner ON s.user_id = owner.id
     WHERE ss.shared_with_user_id = $1
+      AND (ss.expiration IS NULL OR ss.expiration > NOW())
     ORDER BY ss.shared_at DESC
   `;
   try {
     const result = await db.query(query, [userId]);
-    res.json(result.rows);
+    // Convert timestamps to EST
+    const rows = result.rows.map(row => ({
+      ...row,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      shared_at: row.shared_at
+    }));
+    res.json(rows);
   } catch (err) {
     console.error('Database error:', err);
     res.status(500).json({ error: 'Failed to fetch shared sessions' });
@@ -203,6 +214,24 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
 });
 
 // Get specific shared session data
+// Remove current user's access to a shared session
+app.delete('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+  try {
+    const deleteResult = await db.query(
+      `DELETE FROM session_shares WHERE session_id = $1 AND shared_with_user_id = $2`,
+      [sessionId, userId]
+    );
+    if (deleteResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Share not found' });
+    }
+    res.json({ message: 'Access to shared session removed' });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to remove access to shared session' });
+  }
+});
 app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
@@ -309,8 +338,8 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
 
     // Share the session (upsert)
     await db.query(
-      `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expiration)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, expiration, shared_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
        ON CONFLICT (session_id, shared_with_user_id)
        DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expiration = $4`,
       [sessionId, userId, targetUser.id, expiration || null]
@@ -399,7 +428,13 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
       [sessionId, userId]
     );
 
-    res.json(sharesResult.rows);
+    // Convert timestamps to EST
+    const rows = sharesResult.rows.map(row => ({
+      ...row,
+      shared_at: row.shared_at,
+      expiration: row.expiration
+    }));
+    res.json(rows);
 
   } catch (error) {
     console.error('Database error:', error);
@@ -444,7 +479,7 @@ app.put('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Share not found' });
     }
 
-    res.json({ message: `Expiration updated for ${email}` });
+    res.json({ message: `expiration updated for ${email}` });
 
   } catch (error) {
     console.error('Database error:', error);
