@@ -828,7 +828,7 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
           if (existingRequest.rows.length === 0) {
             await db.query(
-              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
+              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
               [requesterId, friend.user_id, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
             );
             requestsCreated++;
