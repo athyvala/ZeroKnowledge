@@ -1,20 +1,32 @@
 {
   "manifest_version": 3,
   "name": "Session Sharer",
-  "version": "1.0",
-  "description": "Share your login sessions temporarily without passwords",
+  "version": "2.0",
+  "description": "Share your login sessions temporarily with automatic logout",
   "permissions": [
     "cookies",
     "activeTab", 
     "storage",
-    "downloads"
+    "downloads",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "*://*/*"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Session Sharer"
+    "default_title": "Session Sharer",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   },
   "background": {
     "service_worker": "background.js"

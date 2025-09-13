@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 300px;
+      width: 350px;
       padding: 20px;
       font-family: Arial, sans-serif;
     }
@@ -55,6 +55,11 @@
       color: #0c5460;
       border: 1px solid #bee5eb;
     }
+    .warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeeba;
+    }
     #fileInput {
       margin: 10px 0;
     }
@@ -63,12 +68,100 @@
       color: #007bff;
       margin-bottom: 15px;
     }
+    .expiration-section {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .expiration-section h4 {
+      margin: 0 0 10px 0;
+      color: #495057;
+    }
+    .expiration-option {
+      display: flex;
+      align-items: center;
+      margin: 8px 0;
+    }
+    .expiration-option input[type="radio"] {
+      margin-right: 8px;
+    }
+    .expiration-option label {
+      flex: 1;
+      cursor: pointer;
+    }
+    .custom-time {
+      display: flex;
+      align-items: center;
+      margin-top: 5px;
+      padding-left: 25px;
+    }
+    .custom-time input[type="number"] {
+      width: 60px;
+      padding: 4px;
+      margin: 0 5px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+    }
+    .active-session {
+      background: #e7f3ff;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+    .active-session .timer {
+      font-weight: bold;
+      color: #dc3545;
+    }
+    .clear-session-btn {
+      background: #dc3545;
+      font-size: 12px;
+      padding: 8px;
+      margin-top: 5px;
+    }
+    .clear-session-btn:hover {
+      background: #c82333;
+    }
   </style>
 </head>
 <body>
   <h3>🔐 Session Sharer</h3>
   
   <div class="domain" id="currentDomain">Loading...</div>
+  
+  <!-- Export Section -->
+  <div class="expiration-section">
+    <h4>⏱️ Session Expiration</h4>
+    <div class="expiration-option">
+      <input type="radio" id="exp30min" name="expiration" value="30">
+      <label for="exp30min">30 minutes</label>
+    </div>
+    <div class="expiration-option">
+      <input type="radio" id="exp1hour" name="expiration" value="60" checked>
+      <label for="exp1hour">1 hour</label>
+    </div>
+    <div class="expiration-option">
+      <input type="radio" id="exp4hours" name="expiration" value="240">
+      <label for="exp4hours">4 hours</label>
+    </div>
+    <div class="expiration-option">
+      <input type="radio" id="exp24hours" name="expiration" value="1440">
+      <label for="exp24hours">24 hours</label>
+    </div>
+    <div class="expiration-option">
+      <input type="radio" id="expCustom" name="expiration" value="custom">
+      <label for="expCustom">Custom</label>
+    </div>
+    <div class="custom-time" id="customTimeDiv" style="display: none;">
+      <input type="number" id="customValue" min="1" max="10080" value="120">
+      <select id="customUnit">
+        <option value="minutes">minutes</option>
+        <option value="hours">hours</option>
+        <option value="days">days</option>
+      </select>
+    </div>
+  </div>
   
   <button class="button export-btn" id="exportBtn">
     📤 Export Session
@@ -78,7 +171,16 @@
     📥 Import Session File
   </button>
   
-  <input type="file" id="fileInput" style="display: none;">
+  <input type="file" id="fileInput" style="display: none;" accept=".session,.json,application/json">
+  
+  <!-- Active imported session indicator -->
+  <div class="active-session" id="activeSession" style="display: none;">
+    <div>🔓 Active imported session for <strong id="sessionDomain"></strong></div>
+    <div>Auto-logout in: <span class="timer" id="sessionTimer"></span></div>
+    <button class="button clear-session-btn" id="clearSessionBtn">
+      End Session Now
+    </button>
+  </div>
   
   <div class="status" id="status" style="display: none;"></div>
   
