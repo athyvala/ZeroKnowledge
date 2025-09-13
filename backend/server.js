@@ -56,9 +56,45 @@ const generateToken = (user) => {
 
 // Routes
 
+// Global variable to cache database schema state
+let hasExpirationFeatures = null; // Reset for debugging
+
+// Check if expiration features are available in database
+const checkExpirationFeatures = async () => {
+  // Temporarily disable cache for debugging
+  // if (hasExpirationFeatures !== null) return hasExpirationFeatures;
+  
+  try {
+    const columnsCheck = await db.query(`
+      SELECT column_name FROM information_schema.columns 
+      WHERE table_name = 'session_shares' 
+      AND column_name IN ('expires_at', 'expiration_minutes', 'is_revoked', 'revoked_at')
+    `);
+    
+    console.log('DEBUG: Found columns in session_shares:', columnsCheck.rows.map(r => r.column_name));
+    console.log('DEBUG: Expected 4 columns, found:', columnsCheck.rows.length);
+    
+    hasExpirationFeatures = columnsCheck.rows.length >= 4;
+    console.log(`Expiration features ${hasExpirationFeatures ? 'ENABLED' : 'DISABLED'} - Database migration ${hasExpirationFeatures ? 'complete' : 'required'}`);
+    return hasExpirationFeatures;
+  } catch (error) {
+    console.error('Error checking database schema:', error);
+    hasExpirationFeatures = false;
+    return false;
+  }
+};
+
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  const expirationEnabled = await checkExpirationFeatures();
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    features: {
+      expiration: expirationEnabled,
+      migration_required: !expirationEnabled
+    }
+  });
 });
 
 // Register
@@ -182,20 +218,45 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 // Get sessions shared with the current user
 app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-  const query = `
-    SELECT 
-      s.id, s.domain, s.url, s.created_at, s.updated_at,
-      owner.email as ownerEmail,
-      ss.shared_at
-    FROM sessions s
-    JOIN session_shares ss ON s.id = ss.session_id
-    JOIN users owner ON s.user_id = owner.id
-    WHERE ss.shared_with_user_id = $1
-    ORDER BY ss.shared_at DESC
-  `;
+  
   try {
-    const result = await db.query(query, [userId]);
-    res.json(result.rows);
+    const hasExpiration = await checkExpirationFeatures();
+    
+    if (hasExpiration) {
+      // With expiration support - filter out expired and revoked sessions
+      const query = `
+        SELECT 
+          s.id, s.domain, s.url, s.created_at, s.updated_at,
+          owner.email as ownerEmail,
+          ss.shared_at,
+          ss.expires_at,
+          ss.expiration_minutes
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users owner ON s.user_id = owner.id
+        WHERE ss.shared_with_user_id = $1
+          AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
+          AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
+        ORDER BY ss.shared_at DESC
+      `;
+      const result = await db.query(query, [userId]);
+      res.json(result.rows);
+    } else {
+      // Legacy mode without expiration filtering
+      const query = `
+        SELECT 
+          s.id, s.domain, s.url, s.created_at, s.updated_at,
+          owner.email as ownerEmail,
+          ss.shared_at
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users owner ON s.user_id = owner.id
+        WHERE ss.shared_with_user_id = $1
+        ORDER BY ss.shared_at DESC
+      `;
+      const result = await db.query(query, [userId]);
+      res.json(result.rows);
+    }
   } catch (err) {
     console.error('Database error:', err);
     res.status(500).json({ error: 'Failed to fetch shared sessions' });
@@ -206,22 +267,39 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
 app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
-  const query = `
-    SELECT s.*, owner.email as ownerEmail
-    FROM sessions s
-    JOIN session_shares ss ON s.id = ss.session_id
-    JOIN users owner ON s.user_id = owner.id
-    WHERE s.id = $1 AND ss.shared_with_user_id = $2
-  `;
+  
   try {
+    const hasExpiration = await checkExpirationFeatures();
+    
+    let query;
+    if (hasExpiration) {
+      query = `
+        SELECT s.*, owner.email as ownerEmail, ss.expires_at, ss.expiration_minutes
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users owner ON s.user_id = owner.id
+        WHERE s.id = $1 AND ss.shared_with_user_id = $2
+          AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
+          AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
+      `;
+    } else {
+      query = `
+        SELECT s.*, owner.email as ownerEmail
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users owner ON s.user_id = owner.id
+        WHERE s.id = $1 AND ss.shared_with_user_id = $2
+      `;
+    }
+    
     const result = await db.query(query, [sessionId, userId]);
     const row = result.rows[0];
     if (!row) {
-      return res.status(404).json({ error: 'Shared session not found or not accessible' });
+      return res.status(404).json({ error: 'Shared session not found, not accessible, or expired' });
     }
     try {
       const cookies = JSON.parse(row.cookies);
-      res.json({
+      const response = {
         id: row.id,
         domain: row.domain,
         url: row.url,
@@ -230,7 +308,14 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         ownerEmail: row.ownerEmail
-      });
+      };
+      
+      if (hasExpiration && row.expires_at) {
+        response.expiresAt = row.expires_at;
+        response.expirationMinutes = row.expiration_minutes;
+      }
+      
+      res.json(response);
     } catch (parseError) {
       console.error('JSON parse error:', parseError);
       res.status(500).json({ error: 'Corrupted session data' });
@@ -283,8 +368,8 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'Email address is required' });
   }
 
-  if (expirationMinutes < 5 || expirationMinutes > 10080) { // 5 minutes to 7 days
-    return res.status(400).json({ error: 'Expiration must be between 5 minutes and 7 days' });
+  if (expirationMinutes < 1 || expirationMinutes > 10080) { // 1 minute to 7 days
+    return res.status(400).json({ error: 'Expiration must be between 1 minute and 7 days' });
   }
 
   try {
@@ -311,15 +396,10 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Cannot share session with yourself' });
     }
 
-    // Check if new columns exist, if not use old format
-    const columnsCheck = await db.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'session_shares' AND column_name IN ('expires_at', 'expiration_minutes')
-    `);
+    // Check if expiration features are available
+    const hasExpiration = await checkExpirationFeatures();
     
-    const hasNewColumns = columnsCheck.rows.length === 2;
-    
-    if (hasNewColumns) {
+    if (hasExpiration) {
       // Calculate expiration time
       const expiresAt = new Date(Date.now() + (expirationMinutes * 60 * 1000));
 
@@ -333,10 +413,11 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       );
 
       res.json({
-        message: `Session shared successfully with ${email}`,
+        message: `Session shared successfully with ${email} (expires in ${expirationMinutes} minutes)`,
         sharedWith: targetUser.email,
         expiresAt: expiresAt,
-        expirationMinutes: expirationMinutes
+        expirationMinutes: expirationMinutes,
+        features: { expiration: true }
       });
     } else {
       // Use old format for compatibility
@@ -349,9 +430,10 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       );
 
       res.json({
-        message: `Session shared successfully with ${email} (legacy mode)`,
+        message: `Session shared successfully with ${email} (permanent - no expiration)`,
         sharedWith: targetUser.email,
-        note: 'Expiration features require database migration'
+        features: { expiration: false },
+        note: 'Run database migration to enable auto-expiration features'
       });
     }
 
@@ -464,22 +546,102 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Session not found or not owned by you' });
     }
 
-    const sharesResult = await db.query(
-      `SELECT 
-         u.email,
-         ss.shared_at
-       FROM session_shares ss
-       JOIN users u ON ss.shared_with_user_id = u.id
-       WHERE ss.session_id = $1 AND ss.owner_user_id = $2
-       ORDER BY ss.shared_at DESC`,
-      [sessionId, userId]
-    );
+    const hasExpiration = await checkExpirationFeatures();
+    
+    let sharesResult;
+    if (hasExpiration) {
+      sharesResult = await db.query(
+        `SELECT 
+           u.email,
+           ss.shared_at,
+           ss.expires_at,
+           ss.expiration_minutes,
+           ss.is_revoked,
+           ss.revoked_at
+         FROM session_shares ss
+         JOIN users u ON ss.shared_with_user_id = u.id
+         WHERE ss.session_id = $1 AND ss.owner_user_id = $2
+         ORDER BY ss.shared_at DESC`,
+        [sessionId, userId]
+      );
+    } else {
+      sharesResult = await db.query(
+        `SELECT 
+           u.email,
+           ss.shared_at
+         FROM session_shares ss
+         JOIN users u ON ss.shared_with_user_id = u.id
+         WHERE ss.session_id = $1 AND ss.owner_user_id = $2
+         ORDER BY ss.shared_at DESC`,
+        [sessionId, userId]
+      );
+    }
 
     res.json(sharesResult.rows);
 
   } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Failed to fetch share list' });
+  }
+});
+
+// Revoke a shared session
+app.delete('/api/sessions/:id/share/:email', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const sessionId = req.params.id;
+  const email = req.params.email;
+
+  try {
+    // Verify the session belongs to the current user
+    const sessionResult = await db.query(
+      'SELECT id FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or not owned by you' });
+    }
+
+    // Find the user to revoke access from
+    const userResult = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    const targetUser = userResult.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found with that email address' });
+    }
+
+    const hasExpiration = await checkExpirationFeatures();
+    
+    if (hasExpiration) {
+      // Mark as revoked instead of deleting
+      const result = await db.query(
+        `UPDATE session_shares 
+         SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+         WHERE session_id = $1 AND owner_user_id = $2 AND shared_with_user_id = $3`,
+        [sessionId, userId, targetUser.id]
+      );
+      
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Session was not shared with this user' });
+      }
+    } else {
+      // Legacy mode - delete the share
+      const result = await db.query(
+        'DELETE FROM session_shares WHERE session_id = $1 AND owner_user_id = $2 AND shared_with_user_id = $3',
+        [sessionId, userId, targetUser.id]
+      );
+      
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Session was not shared with this user' });
+      }
+    }
+
+    res.json({ message: `Session access revoked from ${email}` });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to revoke session access' });
   }
 });
 
@@ -1093,6 +1255,44 @@ app.get('/api/sessions/expiration-info', authenticateToken, async (req, res) => 
   } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Failed to fetch expiration info' });
+  }
+});
+
+// Cleanup expired session shares
+app.post('/api/sessions/cleanup-expired', authenticateToken, async (req, res) => {
+  try {
+    const hasExpiration = await checkExpirationFeatures();
+    
+    if (!hasExpiration) {
+      return res.status(400).json({ 
+        error: 'Expiration features not available', 
+        note: 'Run database migration to enable cleanup' 
+      });
+    }
+
+    // Count expired shares
+    const countResult = await db.query(
+      `SELECT COUNT(*) as expired_count 
+       FROM session_shares 
+       WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP AND is_revoked != TRUE`
+    );
+
+    // Mark expired shares as revoked (soft delete)
+    const cleanupResult = await db.query(
+      `UPDATE session_shares 
+       SET is_revoked = TRUE, revoked_at = CURRENT_TIMESTAMP
+       WHERE expires_at IS NOT NULL AND expires_at <= CURRENT_TIMESTAMP AND is_revoked != TRUE`
+    );
+
+    res.json({
+      message: 'Expired session shares cleaned up successfully',
+      expiredCount: parseInt(countResult.rows[0].expired_count),
+      cleanedUp: cleanupResult.rowCount
+    });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to cleanup expired sessions' });
   }
 });
 

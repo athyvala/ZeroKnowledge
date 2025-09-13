@@ -40,6 +40,13 @@
       display: inline-block;
     }
 
+    .header .server-status {
+      color: #666;
+      font-size: 11px;
+      margin-top: 4px;
+      text-align: center;
+    }
+
     .section {
       display: none;
     }
@@ -641,6 +648,7 @@
     <div class="header">
       <h2>Session Manager</h2>
       <div class="current-domain" id="currentDomain">Loading...</div>
+      <div class="server-status" id="serverStatus">Checking server...</div>
     </div>
 
     <div id="status" class="status"></div>
@@ -737,6 +745,10 @@
         <div class="expiration-section">
           <h4>⏱️ Session Expiration</h4>
           <div class="expiration-option">
+            <input type="radio" id="shareExp1min" name="shareExpiration" value="1">
+            <label for="shareExp1min">1 minute</label>
+          </div>
+          <div class="expiration-option">
             <input type="radio" id="shareExp30min" name="shareExpiration" value="30">
             <label for="shareExp30min">30 minutes</label>
           </div>
@@ -757,7 +769,7 @@
             <label for="shareExpCustom">Custom</label>
           </div>
           <div class="custom-time" id="shareCustomTimeDiv" style="display: none;">
-            <input type="number" id="shareCustomValue" min="5" max="10080" value="120">
+            <input type="number" id="shareCustomValue" min="1" max="10080" value="120">
             <select id="shareCustomUnit">
               <option value="minutes">minutes</option>
               <option value="hours">hours</option>

@@ -96,7 +96,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize
   await init();
 
+  // Check server health and display feature status
+  async function checkServerHealth() {
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      const health = await response.json();
+      
+      // Display server status
+      const serverStatus = document.getElementById('serverStatus');
+      if (serverStatus) {
+        serverStatus.textContent = `Server: ${health.status}`;
+        if (health.features?.expiration) {
+          serverStatus.textContent += ' | Auto-expiration: ✓';
+          serverStatus.style.color = '#28a745';
+        } else {
+          serverStatus.textContent += ' | Auto-expiration: ⚠️ (migration needed)';
+          serverStatus.style.color = '#ffc107';
+        }
+      }
+      
+      return health.features;
+    } catch (error) {
+      console.error('Failed to check server health:', error);
+      const serverStatus = document.getElementById('serverStatus');
+      if (serverStatus) {
+        serverStatus.textContent = 'Server: Disconnected';
+        serverStatus.style.color = '#dc3545';
+      }
+      return { expiration: false };
+    }
+  }
+
   async function init() {
+    // Check server health first
+    await checkServerHealth();
+    
     // Get current tab and domain
     try {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
