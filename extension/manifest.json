@@ -8,7 +8,9 @@
     "cookies",
     "tabs",
     "storage",
-    "activeTab"
+    "activeTab",
+    "alarms",
+    "notifications"
   ],
   
   "host_permissions": [

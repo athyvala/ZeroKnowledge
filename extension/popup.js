@@ -381,9 +381,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             value: cookie.value,
             path: cookie.path,
             secure: cookie.secure,
-            httpOnly: cookie.httpOnly,
-            domain: cookie.domain
+            httpOnly: cookie.httpOnly
           };
+
+          // Handle __Host- cookies specially - they cannot have a domain attribute
+          if (!cookie.name.startsWith('__Host-')) {
+            cookieDetails.domain = cookie.domain;
+          }
+
+          // Handle __Secure- and __Host- cookies - they must be secure
+          if (cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-')) {
+            cookieDetails.secure = true;
+            // Use https for secure cookies
+            cookieDetails.url = cookieUrl.replace('http://', 'https://');
+          }
 
           if (!cookie.session && cookie.expirationDate) {
             cookieDetails.expirationDate = cookie.expirationDate;
@@ -731,9 +742,20 @@ document.addEventListener('DOMContentLoaded', async () => {
             value: cookie.value,
             path: cookie.path,
             secure: cookie.secure,
-            httpOnly: cookie.httpOnly,
-            domain: cookie.domain
+            httpOnly: cookie.httpOnly
           };
+
+          // Handle __Host- cookies specially - they cannot have a domain attribute
+          if (!cookie.name.startsWith('__Host-')) {
+            cookieDetails.domain = cookie.domain;
+          }
+
+          // Handle __Secure- and __Host- cookies - they must be secure
+          if (cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-')) {
+            cookieDetails.secure = true;
+            // Use https for secure cookies
+            cookieDetails.url = cookieUrl.replace('http://', 'https://');
+          }
 
           if (!cookie.session && cookie.expirationDate) {
             cookieDetails.expirationDate = cookie.expirationDate;

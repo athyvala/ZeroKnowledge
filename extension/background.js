@@ -86,6 +86,8 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 // Handle messages from popup or content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('Background received message:', request);
+  
   switch (request.action) {
     case 'startAutoSync':
       if (request.interval) {
@@ -106,6 +108,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       break;
       
+    case 'setAutoLogoutAlarm':
+      if (chrome.alarms) {
+        chrome.alarms.create('autoLogout', { 
+          delayInMinutes: request.delayInMinutes 
+        });
+        console.log(`Auto-logout alarm set for ${request.delayInMinutes} minutes`);
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ error: 'Alarms API not available' });
+      }
+      break;
+      
+    case 'clearAutoLogoutAlarm':
+      if (chrome.alarms) {
+        chrome.alarms.clear('autoLogout');
+        console.log('Auto-logout alarm cleared');
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ error: 'Alarms API not available' });
+      }
+      break;
+      
     default:
       sendResponse({ error: 'Unknown action' });
   }
@@ -113,38 +137,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true; // Keep message channel open for async response
 });
 
-// background.js - Handles auto-logout functionality
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('Session Manager extension installed');
-});
-
 // Handle alarm events for auto-logout
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  console.log('Alarm triggered:', alarm.name);
-  
-  if (alarm.name === 'autoLogout') {
-    await performAutoLogout();
-  }
-});
-
-// Handle messages from popup
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request);
-  
-  if (request.action === 'setAutoLogoutAlarm') {
-    chrome.alarms.create('autoLogout', { 
-      delayInMinutes: request.delayInMinutes 
-    });
-    console.log(`Auto-logout alarm set for ${request.delayInMinutes} minutes`);
-    sendResponse({ success: true });
-  } else if (request.action === 'clearAutoLogoutAlarm') {
-    chrome.alarms.clear('autoLogout');
-    console.log('Auto-logout alarm cleared');
-    sendResponse({ success: true });
-  }
-  
-  return true; // Will respond asynchronously
-});
+if (chrome.alarms) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    console.log('Alarm triggered:', alarm.name);
+    
+    if (alarm.name === 'autoLogout') {
+      await performAutoLogout();
+    } else if (alarm.name === 'periodicCleanup') {
+      await cleanupExpiredSessions();
+    }
+  });
+}
 
 // Perform auto-logout when alarm triggers
 async function performAutoLogout() {
@@ -218,7 +222,7 @@ chrome.runtime.onStartup.addListener(async () => {
       } else if (session.autoLogoutTime) {
         // Session is still valid, set up alarm for remaining time
         const minutesUntilLogout = Math.ceil((session.autoLogoutTime - Date.now()) / (60 * 1000));
-        if (minutesUntilLogout > 0) {
+        if (minutesUntilLogout > 0 && chrome.alarms) {
           chrome.alarms.create('autoLogout', { 
             delayInMinutes: minutesUntilLogout 
           });
@@ -263,15 +267,10 @@ if (chrome.notifications) {
   });
 }
 
-// Periodic cleanup of expired sessions (every 5 minutes)
 // Periodic cleanup of expired sessions (every 1 minute)
-chrome.alarms.create('periodicCleanup', { periodInMinutes: 1 });
-
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'periodicCleanup') {
-    await cleanupExpiredSessions();
-  }
-});
+if (chrome.alarms) {
+  chrome.alarms.create('periodicCleanup', { periodInMinutes: 1 });
+}
 
 async function cleanupExpiredSessions() {
   try {
