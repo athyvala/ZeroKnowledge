@@ -35,13 +35,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mySharesList = document.getElementById('mySharesList');
   const closeManageMySharesBtn = document.getElementById('closeManageMySharesBtn');
 
-  // Access request elements
+  // Access request elements (now uses friends-based access requests)
   const requestAccessBtn = document.getElementById('requestAccessBtn');
-  const requestAccessModal = document.getElementById('requestAccessModal');
-  const requestDomainInput = document.getElementById('requestDomain');
-  const requestMessageInput = document.getElementById('requestMessage');
-  const confirmRequestBtn = document.getElementById('confirmRequestBtn');
-  const cancelRequestBtn = document.getElementById('cancelRequestBtn');
 
   // View requests elements
   const viewRequestsBtn = document.getElementById('viewRequestsBtn');
@@ -56,9 +51,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const closeManageRequestsBtn = document.getElementById('closeManageRequestsBtn');
 
   // Friends elements
-  const friendsBtn = document.getElementById('friendsBtn');
   const friendsModal = document.getElementById('friendsModal');
   const friendsList = document.getElementById('friendsList');
+  const friendsListInline = document.getElementById('friendsListInline');
   const closeFriendsBtn = document.getElementById('closeFriendsBtn');
 
   // Add friend elements
@@ -188,6 +183,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     loginSection.style.display = 'none';
     mainSection.style.display = 'block';
     userInfo.textContent = `Logged in as: ${currentUser.email}`;
+    // Automatically load friends when showing main section
+    if (currentUser) {
+      loadFriendsInline();
+    }
   }
 
   // Expiration and Active Session Management
@@ -801,43 +800,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await showRequestAccessFromFriendsModal();
   });
 
-  confirmRequestBtn.addEventListener('click', async () => {
-    const message = requestMessageInput.value.trim();
-    
-    try {
-      showStatus('Sending access request...', 'info');
-      
-      const response = await fetch(`${API_BASE}/access-requests`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentUser.token}`
-        },
-        body: JSON.stringify({ 
-          domain: currentDomain,
-          url: currentTab.url,
-          message: message || `Access request for ${currentDomain}`
-        })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        showStatus(data.message, 'success');
-        hideRequestAccessModal();
-      } else {
-        showStatus(data.error || 'Failed to send access request', 'error');
-      }
-
-    } catch (error) {
-      console.error('Access request error:', error);
-      showStatus('Request failed: ' + error.message, 'error');
-    }
-  });
-
-  cancelRequestBtn.addEventListener('click', () => {
-    hideRequestAccessModal();
-  });
+  // Old request access functionality removed - now uses friends-based access requests
 
   // View requests functionality
   viewRequestsBtn.addEventListener('click', async () => {
@@ -867,12 +830,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideManageRequestsModal();
   });
 
-  // Close modals when clicking outside
-  requestAccessModal.addEventListener('click', (e) => {
-    if (e.target === requestAccessModal) {
-      hideRequestAccessModal();
-    }
-  });
+  // Old request access modal removed
 
   viewRequestsModal.addEventListener('click', (e) => {
     if (e.target === viewRequestsModal) {
@@ -888,15 +846,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // FRIENDS SYSTEM EVENT LISTENERS
 
-  // Friends functionality
-  friendsBtn.addEventListener('click', async () => {
-    if (!currentUser) {
-      showStatus('Please login first', 'error');
-      return;
-    }
-    showFriendsModal();
-    await loadFriends();
-  });
+  // Friends functionality - automatically load when user logs in
 
   closeFriendsBtn.addEventListener('click', () => {
     hideFriendsModal();
@@ -1511,18 +1461,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     manageMySharesModal.style.display = 'none';
   }
 
-  // ACCESS REQUEST MODAL FUNCTIONS
-
-  function showRequestAccessModal() {
-    requestDomainInput.value = currentDomain;
-    requestAccessModal.style.display = 'flex';
-    requestMessageInput.focus();
-  }
-
-  function hideRequestAccessModal() {
-    requestAccessModal.style.display = 'none';
-    requestMessageInput.value = '';
-  }
+  // ACCESS REQUEST MODAL FUNCTIONS (removed - now uses friends-based access requests)
 
   function showViewRequestsModal() {
     viewRequestsModal.style.display = 'flex';
@@ -1841,6 +1780,79 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Load friends for inline display
+  async function loadFriendsInline() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/friends`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const friends = await response.json();
+
+      if (response.ok) {
+        displayFriendsInline(friends);
+      } else {
+        console.error('Failed to load friends:', friends.error);
+        if (friendsListInline) {
+          friendsListInline.innerHTML = '<div class="no-friends-inline">Failed to load friends</div>';
+        }
+      }
+    } catch (error) {
+      console.error('Load friends error:', error);
+      if (friendsListInline) {
+        friendsListInline.innerHTML = '<div class="no-friends-inline">Error loading friends</div>';
+      }
+    }
+  }
+
+  // Display friends inline
+  function displayFriendsInline(friends) {
+    if (!friendsListInline) return;
+    
+    friendsListInline.innerHTML = '';
+
+    if (!friends || !Array.isArray(friends) || friends.length === 0) {
+      friendsListInline.innerHTML = '<div class="no-friends-inline">No friends yet. Add some friends to start sharing sessions!</div>';
+      return;
+    }
+
+    friends.forEach(friend => {
+      const friendItem = document.createElement('div');
+      friendItem.className = 'friend-item-inline';
+      
+      friendItem.innerHTML = `
+        <div class="friend-info-inline">
+          <div class="friend-email-inline">${friend.friendemail}</div>
+          <div class="friend-meta-inline">
+            Friends since: ${new Date(friend.friendssince).toLocaleDateString()}
+          </div>
+        </div>
+        <div class="friend-actions-inline">
+          <button class="btn btn-sm btn-danger remove-friend-btn-inline" data-friend-id="${friend.friendid}">
+            Remove
+          </button>
+        </div>
+      `;
+      
+      friendsListInline.appendChild(friendItem);
+    });
+
+    // Attach event listeners to remove friend buttons
+    const removeBtns = friendsListInline.querySelectorAll('.remove-friend-btn-inline');
+    removeBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const friendId = btn.getAttribute('data-friend-id');
+        if (confirm('Are you sure you want to remove this friend?')) {
+          await handleRemoveFriend(friendId);
+        }
+      });
+    });
+  }
+
   async function loadIncomingFriendRequests() {
     if (!currentUser) return;
 
@@ -2059,6 +2071,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response.ok) {
         showStatus(data.message, 'success');
         await loadIncomingFriendRequests(); // Refresh the list
+        await loadFriendsInline(); // Refresh the inline friends list
       } else {
         showStatus(data.error || 'Failed to accept friend request', 'error');
       }
@@ -2110,7 +2123,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response.ok) {
         showStatus(data.message, 'success');
-        await loadFriends(); // Refresh the list
+        await loadFriends(); // Refresh the modal list
+        await loadFriendsInline(); // Refresh the inline list
       } else {
         showStatus(data.error || 'Failed to remove friend', 'error');
       }

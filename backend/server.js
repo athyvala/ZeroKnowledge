@@ -799,7 +799,7 @@ app.delete('/api/sessions/:id', authenticateToken, async (req, res) => {
 // Request access to a specific URL/domain (friends-only)
 app.post('/api/access-requests', authenticateToken, async (req, res) => {
   const requesterId = req.user.id;
-  const { url, domain, message, friendId } = req.body;
+  const { url, domain, message, friendId, requestedExpirationMinutes } = req.body;
 
   if (!url && !domain) {
     return res.status(400).json({ error: 'Either URL or domain is required' });
@@ -852,8 +852,8 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
       // Create access request
       await db.query(
-        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
-        [requesterId, friendIdNum, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
+        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, requested_expiration_minutes) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [requesterId, friendIdNum, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending', requestedExpirationMinutes || 60]
       );
 
       res.status(201).json({
@@ -890,8 +890,8 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
           if (existingRequest.rows.length === 0) {
             await db.query(
-              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
-              [requesterId, friend.user_id, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
+              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, requested_expiration_minutes) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+              [requesterId, friend.user_id, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending', requestedExpirationMinutes || 60]
             );
             requestsCreated++;
           }
