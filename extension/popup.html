@@ -870,6 +870,69 @@
       </div>
     </div>
 
+    <!-- Approve Request Modal -->
+    <div id="approveRequestModal" class="modal">
+      <div class="modal-content">
+        <h3>Approve Access Request</h3>
+        <div class="form-group">
+          <label>Request from:</label>
+          <input type="text" id="approveRequesterEmail" readonly>
+        </div>
+        <div class="form-group">
+          <label>Domain:</label>
+          <input type="text" id="approveDomain" readonly>
+        </div>
+        <div class="form-group">
+          <label>Message:</label>
+          <textarea id="approveMessage" readonly rows="2"></textarea>
+        </div>
+        
+        <!-- Expiration Controls -->
+        <div class="expiration-section">
+          <h4>⏱️ Access Duration</h4>
+          <div class="expiration-info" id="requestedDurationInfo" style="margin-bottom: 10px;">
+            Requested duration: <span id="requestedDuration">1 hour</span>
+          </div>
+          <div class="expiration-option">
+            <input type="radio" id="approveExp30min" name="approveExpiration" value="30">
+            <label for="approveExp30min">30 minutes</label>
+          </div>
+          <div class="expiration-option">
+            <input type="radio" id="approveExp1hour" name="approveExpiration" value="60" checked>
+            <label for="approveExp1hour">1 hour</label>
+          </div>
+          <div class="expiration-option">
+            <input type="radio" id="approveExp4hours" name="approveExpiration" value="240">
+            <label for="approveExp4hours">4 hours</label>
+          </div>
+          <div class="expiration-option">
+            <input type="radio" id="approveExp24hours" name="approveExpiration" value="1440">
+            <label for="approveExp24hours">24 hours</label>
+          </div>
+          <div class="expiration-option">
+            <input type="radio" id="approveExpCustom" name="approveExpiration" value="custom">
+            <label for="approveExpCustom">Custom</label>
+          </div>
+          <div class="custom-time" id="approveCustomTimeDiv" style="display: none;">
+            <input type="number" id="approveCustomValue" min="5" max="10080" value="120">
+            <select id="approveCustomUnit">
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </div>
+          <div class="expiration-info">
+            Note: You can set a different duration than what was requested.
+          </div>
+        </div>
+        
+        <div class="btn-row">
+          <button id="confirmApproveBtn" class="btn btn-success">Approve Access</button>
+          <button id="cancelApproveBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Friends Modal -->
     <div id="friendsModal" class="modal">
       <div class="modal-content modal-large">

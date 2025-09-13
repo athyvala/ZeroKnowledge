@@ -49,6 +49,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const manageRequestsList = document.getElementById('manageRequestsList');
   const closeManageRequestsBtn = document.getElementById('closeManageRequestsBtn');
 
+  // Approve request elements
+  const approveRequestModal = document.getElementById('approveRequestModal');
+  const approveRequesterEmailInput = document.getElementById('approveRequesterEmail');
+  const approveDomainInput = document.getElementById('approveDomain');
+  const approveMessageInput = document.getElementById('approveMessage');
+  const confirmApproveBtn = document.getElementById('confirmApproveBtn');
+  const cancelApproveBtn = document.getElementById('cancelApproveBtn');
+
   // Friends elements
   const friendsBtn = document.getElementById('friendsBtn');
   const friendsModal = document.getElementById('friendsModal');
@@ -822,6 +830,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideManageRequestsModal();
   });
 
+  // Approve request modal handlers
+  confirmApproveBtn.addEventListener('click', async () => {
+    const requestId = approveRequestModal.getAttribute('data-request-id');
+    const expirationMinutes = getExpirationMinutes('approve');
+    
+    try {
+      showStatus('Approving request...', 'info');
+      
+      const response = await fetch(`${API_BASE}/access-requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`
+        },
+        body: JSON.stringify({
+          expirationMinutes: expirationMinutes
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(data.message, 'success');
+        hideApproveRequestModal();
+        await loadIncomingRequests(); // Refresh the list
+      } else {
+        showStatus(data.error || 'Failed to approve request', 'error');
+      }
+
+    } catch (error) {
+      console.error('Approve request error:', error);
+      if (error.message.includes('Failed to fetch')) {
+        showStatus('Cannot connect to server. Please check if the backend is running.', 'error');
+      } else {
+        showStatus('Approve failed: ' + error.message, 'error');
+      }
+    }
+  });
+
+  cancelApproveBtn.addEventListener('click', () => {
+    hideApproveRequestModal();
+  });
+
   // Close modals when clicking outside
   requestAccessModal.addEventListener('click', (e) => {
     if (e.target === requestAccessModal) {
@@ -838,6 +889,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   manageRequestsModal.addEventListener('click', (e) => {
     if (e.target === manageRequestsModal) {
       hideManageRequestsModal();
+    }
+  });
+
+  approveRequestModal.addEventListener('click', (e) => {
+    if (e.target === approveRequestModal) {
+      hideApproveRequestModal();
     }
   });
 
@@ -1060,6 +1117,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Approve request modal expiration controls
+  document.querySelectorAll('input[name="approveExpiration"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const customDiv = document.getElementById('approveCustomTimeDiv');
+      if (e.target.value === 'custom') {
+        customDiv.style.display = 'flex';
+      } else {
+        customDiv.style.display = 'none';
+      }
+    });
+  });
+
   async function loadUserSessions() {
     if (!currentUser) return;
 
@@ -1109,9 +1178,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function displaySharedSessions(sessions) {
-    console.log('displaySharedSessions called with:', sessions);
-    console.log('sharedSessionsList element:', sharedSessionsList);
-    
     if (!sharedSessionsList) {
       console.error('sharedSessionsList element not found!');
       return;
@@ -1120,16 +1186,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     sharedSessionsList.innerHTML = '';
     
     if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
-      console.log('No sessions to display');
       sharedSessionsList.innerHTML = '<div class="no-sessions">No shared sessions available</div>';
       return;
     }
 
-    console.log('Displaying', sessions.length, 'shared sessions');
-
     sessions.forEach((session, index) => {
-      console.log(`Creating session item ${index}:`, session);
-      
       const sessionItem = document.createElement('div');
       sessionItem.className = 'shared-session-item';
         sessionItem.innerHTML = `
@@ -1148,8 +1209,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
       sharedSessionsList.appendChild(sessionItem);
     });
-    
-    console.log('Finished displaying shared sessions');
 
       // Attach event listeners to shared session load buttons
       const loadBtns = sharedSessionsList.querySelectorAll('.shared-load-btn');
@@ -1173,6 +1232,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       const sessionData = await response.json();
+      console.log('DEBUG: Received session data:', sessionData);
 
       if (!response.ok) {
         throw new Error(sessionData.error || 'Failed to load shared session');
@@ -1218,6 +1278,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (successCount > 0) {
         showStatus(`Shared session loaded! ${successCount} cookies imported${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
+        
+        // Set up the timer if expiration info is available
+        if (sessionData.expiresAt) {
+          console.log('DEBUG: Setting up timer with expiresAt:', sessionData.expiresAt);
+          const expiresAt = new Date(sessionData.expiresAt);
+          const autoLogoutTime = expiresAt.getTime();
+          const importTime = Date.now();
+          
+          console.log('DEBUG: Timer setup - autoLogoutTime:', autoLogoutTime, 'importTime:', importTime, 'difference:', autoLogoutTime - importTime);
+          
+          // Store active session with timer information
+          const activeSession = {
+            domain: sessionData.domain,
+            url: sessionData.url,
+            cookies: sessionData.cookies,
+            autoLogoutTime: autoLogoutTime,
+            importTime: importTime,
+            originalExpiration: autoLogoutTime,
+            expirationMinutes: sessionData.expirationMinutes || 60
+          };
+          
+          console.log('DEBUG: Storing activeSession:', activeSession);
+          await chrome.storage.local.set({ activeSession });
+          
+          // Set up background alarm for auto-logout
+          chrome.runtime.sendMessage({
+            action: 'setAutoLogoutAlarm',
+            delayInMinutes: Math.ceil((autoLogoutTime - importTime) / (60 * 1000))
+          });
+          
+          // Start the timer display
+          console.log('DEBUG: Calling checkActiveSession to start timer...');
+          await checkActiveSession();
+        } else {
+          console.log('DEBUG: No expiresAt found in sessionData:', sessionData);
+        }
+        
         hideSharedSessionsModal();
         
         // Navigate to the domain
@@ -1288,6 +1385,67 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function hideManageRequestsModal() {
     manageRequestsModal.style.display = 'none';
+  }
+
+  async function showApproveRequestModal(requestId) {
+    // Get the request details first
+    try {
+      const response = await fetch(`${API_BASE}/access-requests/incoming`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const requests = await response.json();
+      const request = requests.find(r => r.id == requestId);
+      
+      if (!request) {
+        showStatus('Request not found', 'error');
+        return;
+      }
+
+      // Populate the modal with request details
+      approveRequesterEmailInput.value = request.requesteremail;
+      approveDomainInput.value = request.domain;
+      approveMessageInput.value = request.message || 'No message provided';
+      
+      // Show requested duration
+      const requestedMinutes = request.requested_expiration_minutes || 60;
+      let requestedDurationText = '';
+      if (requestedMinutes < 60) {
+        requestedDurationText = `${requestedMinutes} minutes`;
+      } else if (requestedMinutes < 1440) {
+        requestedDurationText = `${Math.round(requestedMinutes / 60)} hours`;
+      } else {
+        requestedDurationText = `${Math.round(requestedMinutes / 1440)} days`;
+      }
+      
+      const requestedDurationSpan = document.getElementById('requestedDuration');
+      if (requestedDurationSpan) {
+        requestedDurationSpan.textContent = requestedDurationText;
+      }
+      
+      // Store the request ID for later use
+      approveRequestModal.setAttribute('data-request-id', requestId);
+      
+      // Show the modal
+      approveRequestModal.style.display = 'flex';
+      
+    } catch (error) {
+      console.error('Error loading request details:', error);
+      showStatus('Failed to load request details', 'error');
+    }
+  }
+
+  function hideApproveRequestModal() {
+    approveRequestModal.style.display = 'none';
+    // Reset form
+    approveRequesterEmailInput.value = '';
+    approveDomainInput.value = '';
+    approveMessageInput.value = '';
+    // Reset radio buttons to default (1 hour)
+    document.getElementById('approveExp1hour').checked = true;
+    document.getElementById('approveCustomTimeDiv').style.display = 'none';
   }
 
   // LOAD REQUESTS FUNCTIONS
@@ -1433,37 +1591,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function handleApproveRequest(requestId) {
-    try {
-      showStatus('Approving request...', 'info');
-      
-      const response = await fetch(`${API_BASE}/access-requests/${requestId}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentUser.token}`
-        },
-        body: JSON.stringify({
-          expirationMinutes: 60 // Default to 1 hour, could be made configurable
-        })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        showStatus(data.message, 'success');
-        await loadIncomingRequests(); // Refresh the list
-      } else {
-        showStatus(data.error || 'Failed to approve request', 'error');
-      }
-
-    } catch (error) {
-      console.error('Approve request error:', error);
-      if (error.message.includes('Failed to fetch')) {
-        showStatus('Cannot connect to server. Please check if the backend is running.', 'error');
-      } else {
-        showStatus('Approve failed: ' + error.message, 'error');
-      }
-    }
+    // Show the approve modal instead of immediately approving
+    await showApproveRequestModal(requestId);
   }
 
   async function handleDenyRequest(requestId) {
