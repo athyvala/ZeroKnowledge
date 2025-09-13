@@ -111,7 +111,7 @@ app.post('/api/auth/register', async (req, res) => {
     // Create new user
     const passwordHash = await hashPassword(password);
     const result = await db.query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
+      'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING id, email, created_at',
       [email, passwordHash]
     );
     const user = result.rows[0];
@@ -828,7 +828,7 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
           if (existingRequest.rows.length === 0) {
             await db.query(
-              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
+              'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
               [requesterId, friend.user_id, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
             );
             requestsCreated++;

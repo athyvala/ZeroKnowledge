@@ -1761,10 +1761,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const row = document.createElement('div');
       row.className = 'friend-row';
       row.innerHTML = `
-        <div style="display:flex; align-items:center;">
+        <div style="display:flex; align-items:center; min-width:0;">
           <span class="avatar">${initial}</span>
-          <div>
-            <div style="font-weight:500; color:#333;">${email}</div>
+          <div style="min-width:0;">
+            <div class="friend-name">${email}</div>
             <div class="meta">Friend</div>
           </div>
         </div>
