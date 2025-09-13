@@ -356,6 +356,72 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Get all sessions shared by the current user
+app.get('/api/sessions/my-shares', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  console.log('Loading my shares for user ID:', userId);
+
+  try {
+    const hasExpiration = await checkExpirationFeatures();
+    console.log('Expiration features enabled:', hasExpiration);
+    
+    let sharesResult;
+    if (hasExpiration) {
+      console.log('Using expiration-enabled query');
+      sharesResult = await db.query(
+        `SELECT 
+           s.id as session_id,
+           s.domain,
+           s.url,
+           s.created_at as session_created_at,
+           u.email as shared_with_email,
+           ss.shared_at,
+           ss.expires_at,
+           ss.expiration_minutes,
+           ss.is_revoked,
+           ss.revoked_at,
+           CASE 
+             WHEN ss.expires_at IS NULL THEN 'permanent'
+             WHEN ss.is_revoked = TRUE THEN 'revoked'
+             WHEN ss.expires_at <= CURRENT_TIMESTAMP THEN 'expired'
+             ELSE 'active'
+           END as status
+         FROM sessions s
+         JOIN session_shares ss ON s.id = ss.session_id
+         JOIN users u ON ss.shared_with_user_id = u.id
+         WHERE ss.owner_user_id = $1
+         ORDER BY s.domain, ss.shared_at DESC`,
+        [userId]
+      );
+    } else {
+      console.log('Using legacy query');
+      sharesResult = await db.query(
+        `SELECT 
+           s.id as session_id,
+           s.domain,
+           s.url,
+           s.created_at as session_created_at,
+           u.email as shared_with_email,
+           ss.shared_at,
+           'active' as status
+         FROM sessions s
+         JOIN session_shares ss ON s.id = ss.session_id
+         JOIN users u ON ss.shared_with_user_id = u.id
+         WHERE ss.owner_user_id = $1
+         ORDER BY s.domain, ss.shared_at DESC`,
+        [userId]
+      );
+    }
+
+    console.log('Query result:', sharesResult.rows.length, 'shares found');
+    res.json(sharesResult.rows);
+
+  } catch (error) {
+    console.error('Database error in my-shares:', error);
+    res.status(500).json({ error: 'Failed to fetch my shares' });
+  }
+});
+
 // Get specific session
 app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
@@ -642,72 +708,6 @@ app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Failed to fetch share list' });
-  }
-});
-
-// Get all sessions shared by the current user
-app.get('/api/sessions/my-shares', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  console.log('Loading my shares for user ID:', userId);
-
-  try {
-    const hasExpiration = await checkExpirationFeatures();
-    console.log('Expiration features enabled:', hasExpiration);
-    
-    let sharesResult;
-    if (hasExpiration) {
-      console.log('Using expiration-enabled query');
-      sharesResult = await db.query(
-        `SELECT 
-           s.id as session_id,
-           s.domain,
-           s.url,
-           s.created_at as session_created_at,
-           u.email as shared_with_email,
-           ss.shared_at,
-           ss.expires_at,
-           ss.expiration_minutes,
-           ss.is_revoked,
-           ss.revoked_at,
-           CASE 
-             WHEN ss.expires_at IS NULL THEN 'permanent'
-             WHEN ss.is_revoked = TRUE THEN 'revoked'
-             WHEN ss.expires_at <= CURRENT_TIMESTAMP THEN 'expired'
-             ELSE 'active'
-           END as status
-         FROM sessions s
-         JOIN session_shares ss ON s.id = ss.session_id
-         JOIN users u ON ss.shared_with_user_id = u.id
-         WHERE ss.owner_user_id = $1
-         ORDER BY s.domain, ss.shared_at DESC`,
-        [userId]
-      );
-    } else {
-      console.log('Using legacy query');
-      sharesResult = await db.query(
-        `SELECT 
-           s.id as session_id,
-           s.domain,
-           s.url,
-           s.created_at as session_created_at,
-           u.email as shared_with_email,
-           ss.shared_at,
-           'active' as status
-         FROM sessions s
-         JOIN session_shares ss ON s.id = ss.session_id
-         JOIN users u ON ss.shared_with_user_id = u.id
-         WHERE ss.owner_user_id = $1
-         ORDER BY s.domain, ss.shared_at DESC`,
-        [userId]
-      );
-    }
-
-    console.log('Query result:', sharesResult.rows.length, 'shares found');
-    res.json(sharesResult.rows);
-
-  } catch (error) {
-    console.error('Database error in my-shares:', error);
-    res.status(500).json({ error: 'Failed to fetch my shares' });
   }
 });
 
