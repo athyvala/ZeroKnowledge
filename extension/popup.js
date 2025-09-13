@@ -1136,7 +1136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="session-info">
             <div class="session-domain">${session.domain || 'Unknown domain'}</div>
             <div class="session-meta">
-              Shared by: ${session.ownerEmail || 'Unknown'}<br>
+              Shared by: ${session.owneremail || 'Unknown'}<br>
               Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
             </div>
           </div>
@@ -1359,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="request-info">
           <div class="request-domain">${request.domain}</div>
           <div class="request-meta">
-            To: ${request.ownerEmail}<br>
+            To: ${request.owneremail}<br>
             Sent: ${new Date(request.created_at).toLocaleDateString()}<br>
             <span class="status-badge ${statusClass}">${statusText}</span>
           </div>

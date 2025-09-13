@@ -196,7 +196,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
     } else {
       // Create new session
       const result = await db.query(
-        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent, created_at) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP) RETURNING id',
         [userId, domain, url, cookiesJson, userAgent]
       );
       res.status(201).json({
@@ -225,7 +225,7 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
       const query = `
         SELECT 
           s.id, s.domain, s.url, s.created_at, s.updated_at,
-          owner.email as ownerEmail,
+          owner.email as owneremail,
           ss.shared_at,
           ss.expiration_minutes,
           EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared
@@ -263,7 +263,7 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
       const query = `
         SELECT 
           s.id, s.domain, s.url, s.created_at, s.updated_at,
-          owner.email as ownerEmail,
+          owner.email as owneremail,
           ss.shared_at
         FROM sessions s
         JOIN session_shares ss ON s.id = ss.session_id
@@ -291,7 +291,7 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
     let query;
     if (hasExpiration) {
       query = `
-        SELECT s.*, owner.email as ownerEmail, ss.expires_at, ss.expiration_minutes, ss.shared_at,
+        SELECT s.*, owner.email as owneremail, ss.expires_at, ss.expiration_minutes, ss.shared_at,
                EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared
         FROM sessions s
         JOIN session_shares ss ON s.id = ss.session_id
@@ -301,7 +301,7 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
       `;
     } else {
       query = `
-        SELECT s.*, owner.email as ownerEmail
+        SELECT s.*, owner.email as owneremail
         FROM sessions s
         JOIN session_shares ss ON s.id = ss.session_id
         JOIN users owner ON s.user_id = owner.id
@@ -337,7 +337,7 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
         userAgent: row.user_agent,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        ownerEmail: row.ownerEmail
+        owneremail: row.owneremail
       };
       
       if (hasExpiration && row.expires_at) {
@@ -786,7 +786,7 @@ app.post('/api/access-requests', authenticateToken, async (req, res) => {
 
       // Create access request
       await db.query(
-        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status) VALUES ($1, $2, $3, $4, $5, $6)',
+        'INSERT INTO access_requests (requester_id, owner_id, url, domain, message, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
         [requesterId, friendIdNum, targetUrl, targetDomain, message || `Access request for ${targetDomain}`, 'pending']
       );
 
@@ -899,7 +899,7 @@ app.get('/api/access-requests/outgoing', authenticateToken, async (req, res) => 
     const result = await db.query(`
       SELECT 
         ar.id, ar.url, ar.domain, ar.message, ar.status, ar.created_at, ar.responded_at,
-        u.email as ownerEmail
+        u.email as owneremail
       FROM access_requests ar
       JOIN users u ON ar.owner_id = u.id
       WHERE ar.requester_id = $1
@@ -1047,12 +1047,18 @@ app.post('/api/friends/request', authenticateToken, async (req, res) => {
       const request = existingRequest.rows[0];
       if (request.status === 'pending') {
         return res.status(400).json({ error: 'Friend request already pending' });
+      } else {
+        // Remove any existing friend requests between these users
+        await db.query(
+          'DELETE FROM friend_requests WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1)',
+          [senderId, targetUser.id]
+        );
       }
     }
 
     // Create friend request
     await db.query(
-      'INSERT INTO friend_requests (sender_id, receiver_id, message) VALUES ($1, $2, $3)',
+      'INSERT INTO friend_requests (sender_id, receiver_id, message, created_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)',
       [senderId, targetUser.id, message || `Friend request from ${req.user.email}`]
     );
 
@@ -1133,7 +1139,7 @@ app.post('/api/friends/requests/:id/accept', authenticateToken, async (req, res)
     const user2Id = Math.max(request.sender_id, request.receiver_id);
     
     await db.query(
-      'INSERT INTO friendships (user1_id, user2_id) VALUES ($1, $2)',
+      'INSERT INTO friendships (user1_id, user2_id, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING',
       [user1Id, user2Id]
     );
 
@@ -1181,7 +1187,7 @@ app.get('/api/friends', authenticateToken, async (req, res) => {
   try {
     const result = await db.query(`
       SELECT 
-        f.created_at as friendsSince,
+        f.created_at as friendssince,
         CASE 
           WHEN f.user1_id = $1 THEN u2.email
           ELSE u1.email
