@@ -102,8 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentUser = null;
   let timerInterval = null; // For active session countdown
 
-  // Initialize
-  await init();
+  // Initialize moved to end to avoid blocking listener bindings
 
   // Check server health and display feature status
   async function checkServerHealth() {
@@ -711,10 +710,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Shared sessions functionality
-  sharedSessionsBtn.addEventListener('click', async () => {
-    showSharedSessionsModal();
-    await loadSharedSessions();
-  });
+  if (sharedSessionsBtn) {
+    sharedSessionsBtn.addEventListener('click', async () => {
+      showSharedSessionsModal();
+      await loadSharedSessions();
+    });
+  }
 
   closeSharedModalBtn.addEventListener('click', () => {
     hideSharedSessionsModal();
@@ -1177,47 +1178,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function displaySharedSessions(sessions) {
-    if (!sharedSessionsList) {
-      console.error('sharedSessionsList element not found!');
-      return;
-    }
-    
-    sharedSessionsList.innerHTML = '';
-    
-    if (!sessions || !Array.isArray(sessions) || sessions.length === 0) {
-      sharedSessionsList.innerHTML = '<div class="no-sessions">No shared sessions available</div>';
+  async function displaySharedSessions(sessions) {
+    const listEl = document.getElementById('sharedSessionsTabList') || sharedSessionsList;
+    if (!listEl) { console.error('shared sessions list element not found'); return; }
+    const store = await chrome.storage.local.get('hiddenSharedSessions');
+    const hidden = store.hiddenSharedSessions || [];
+
+    listEl.innerHTML = '';
+    const filtered = Array.isArray(sessions) ? sessions.filter(s => !hidden.includes(String(s.id))) : [];
+    if (filtered.length === 0) {
+      listEl.innerHTML = '<div class="no-sessions">No shared sessions available</div>';
       return;
     }
 
-    sessions.forEach((session, index) => {
+    filtered.forEach((session) => {
       const sessionItem = document.createElement('div');
       sessionItem.className = 'shared-session-item';
-        sessionItem.innerHTML = `
-          <div class="session-info">
-            <div class="session-domain">${session.domain || 'Unknown domain'}</div>
-            <div class="session-meta">
-              Shared by: ${session.owneremail || 'Unknown'}<br>
-              Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
-            </div>
+      sessionItem.innerHTML = `
+        <div class="session-info">
+          <div class="session-domain">${session.domain || 'Unknown domain'}</div>
+          <div class="session-meta">
+            Shared by: ${session.ownerEmail || 'Unknown'}<br>
+            Date: ${session.created_at ? new Date(session.created_at).toLocaleDateString() : 'Unknown date'}
           </div>
-          <div class="session-actions">
-            <button class="btn btn-sm btn-primary shared-load-btn" data-session-id="${session.id}">
-              Load Session
-            </button>
-          </div>
-        `;
-      sharedSessionsList.appendChild(sessionItem);
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-sm btn-primary shared-load-btn" data-session-id="${session.id}">Load</button>
+          <button class="btn btn-sm btn-outline hide-shared-btn" data-session-id="${session.id}">Hide</button>
+        </div>`;
+      listEl.appendChild(sessionItem);
     });
 
-      // Attach event listeners to shared session load buttons
-      const loadBtns = sharedSessionsList.querySelectorAll('.shared-load-btn');
-      loadBtns.forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const sessionId = btn.getAttribute('data-session-id');
-          await window.loadSharedSession(sessionId);
-        });
+    // Attach events
+    listEl.querySelectorAll('.shared-load-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const sessionId = btn.getAttribute('data-session-id');
+        await window.loadSharedSession(sessionId);
       });
+    });
+    listEl.querySelectorAll('.hide-shared-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = String(btn.getAttribute('data-session-id'));
+        const cur = (await chrome.storage.local.get('hiddenSharedSessions')).hiddenSharedSessions || [];
+        if (!cur.includes(id)) cur.push(id);
+        await chrome.storage.local.set({ hiddenSharedSessions: cur });
+        await loadSharedSessions();
+      });
+    });
   }
 
   // Make loadSharedSession globally accessible for onclick
@@ -1517,7 +1524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="request-info">
           <div class="request-domain">${request.domain}</div>
           <div class="request-meta">
-            To: ${request.owneremail}<br>
+            To: ${request.ownerEmail}<br>
             Sent: ${new Date(request.created_at).toLocaleDateString()}<br>
             <span class="status-badge ${statusClass}">${statusText}</span>
           </div>
@@ -1682,13 +1689,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (response.ok) {
         displayFriends(friends);
+        displayFriendsDropdown(friends);
       } else {
         console.error('Failed to load friends:', friends.error);
         friendsList.innerHTML = '<div class="no-friends">Failed to load friends</div>';
+        displayFriendsDropdown([]);
       }
     } catch (error) {
       console.error('Load friends error:', error);
       friendsList.innerHTML = '<div class="no-friends">Error loading friends</div>';
+      displayFriendsDropdown([]);
     }
   }
 
@@ -1731,6 +1741,98 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     });
+  }
+
+  // Also render the lightweight friends dropdown in Friends tab
+  function displayFriendsDropdown(friends) {
+    const wrap = document.getElementById('friendsDropdownList');
+    const badge = document.getElementById('friendsCountBadge');
+    if (!wrap || !badge) return;
+    wrap.innerHTML = '';
+    const list = Array.isArray(friends) ? friends : [];
+    badge.textContent = String(list.length);
+    if (list.length === 0) {
+      wrap.innerHTML = '<div class="no-friends">No friends yet. Add some friends to start sharing sessions!</div>';
+      return;
+    }
+    list.forEach(f => {
+      const email = f.friendemail || f.email || 'Unknown';
+      const initial = email.charAt(0).toUpperCase();
+      const row = document.createElement('div');
+      row.className = 'friend-row';
+      row.innerHTML = `
+        <div style="display:flex; align-items:center;">
+          <span class="avatar">${initial}</span>
+          <div>
+            <div style="font-weight:500; color:#333;">${email}</div>
+            <div class="meta">Friend</div>
+          </div>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-outline" data-email="${email}">Message</button>
+        </div>`;
+      wrap.appendChild(row);
+    });
+  }
+
+  // Tab switching
+  const tabBtnSessions = document.getElementById('tabBtnSessions');
+  const tabBtnShared = document.getElementById('tabBtnShared');
+  const tabBtnFriends = document.getElementById('tabBtnFriends');
+  const tabSessions = document.getElementById('tabSessions');
+  const tabShared = document.getElementById('tabShared');
+  const tabFriends = document.getElementById('tabFriends');
+
+  function setActiveTab(name) {
+    [tabBtnSessions, tabBtnShared, tabBtnFriends].forEach(b => b && b.classList.remove('active'));
+    [tabSessions, tabShared, tabFriends].forEach(c => c && c.classList.remove('active'));
+    [tabSessions, tabShared, tabFriends].forEach(c => { if (c) c.style.display = 'none'; });
+    if (name === 'sessions' && tabSessions) {
+      tabBtnSessions && tabBtnSessions.classList.add('active');
+      tabSessions.classList.add('active');
+      tabSessions.style.display = 'block';
+    } else if (name === 'shared' && tabShared) {
+      tabBtnShared && tabBtnShared.classList.add('active');
+      tabShared.classList.add('active');
+      tabShared.style.display = 'block';
+      loadSharedSessions();
+    } else if (name === 'friends' && tabFriends) {
+      tabBtnFriends && tabBtnFriends.classList.add('active');
+      tabFriends.classList.add('active');
+      tabFriends.style.display = 'block';
+      loadFriends();
+    }
+  }
+
+  if (tabBtnSessions && tabBtnShared && tabBtnFriends) {
+    tabBtnSessions.addEventListener('click', () => setActiveTab('sessions'));
+    tabBtnShared.addEventListener('click', () => setActiveTab('shared'));
+    tabBtnFriends.addEventListener('click', () => setActiveTab('friends'));
+  }
+  const mainTabs = document.getElementById('mainTabs');
+  if (mainTabs) {
+    mainTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn) return;
+      const tab = btn.dataset.tab || (btn.id === 'tabBtnShared' ? 'shared' : btn.id === 'tabBtnFriends' ? 'friends' : 'sessions');
+      setActiveTab(tab);
+    });
+  }
+  // Extra safety: delegate on document as well in case events don't bubble to #mainTabs
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.tab-btn');
+    if (!btn) return;
+    const tab = btn.dataset.tab || (btn.id === 'tabBtnShared' ? 'shared' : btn.id === 'tabBtnFriends' ? 'friends' : 'sessions');
+    setActiveTab(tab);
+  });
+  // Ensure default tab state
+  setActiveTab('sessions');
+
+  // Kick off initialization (after listeners are bound)
+  try {
+    await init();
+  } catch (e) {
+    console.error('Init error:', e);
   }
 
   async function loadIncomingFriendRequests() {
