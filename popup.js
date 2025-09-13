@@ -1,57 +1,205 @@
+// Updated extension popup script with account-based session sharing
 document.addEventListener('DOMContentLoaded', async () => {
-  const exportBtn = document.getElementById('exportBtn');
-  const importBtn = document.getElementById('importBtn');
-  const fileInput = document.getElementById('fileInput');
+  const loginSection = document.getElementById('loginSection');
+  const mainSection = document.getElementById('mainSection');
+  const loginBtn = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const registerBtn = document.getElementById('registerBtn');
+  const emailInput = document.getElementById('email');
+  const passwordInput = document.getElementById('password');
+  const userInfo = document.getElementById('userInfo');
+  const saveSessionBtn = document.getElementById('saveSessionBtn');
+  const loadSessionBtn = document.getElementById('loadSessionBtn');
+  const sessionsDropdown = document.getElementById('sessionsDropdown');
+  const deleteSessionBtn = document.getElementById('deleteSessionBtn');
   const status = document.getElementById('status');
   const domainEl = document.getElementById('currentDomain');
 
+  const API_BASE = 'http://localhost:3000/api'; // Replace with your server URL
   let currentTab = null;
   let currentDomain = '';
+  let currentUser = null;
 
-  // Get current tab and domain
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    currentTab = tabs[0];
-    const url = new URL(currentTab.url);
-    currentDomain = url.hostname;
-    domainEl.textContent = currentDomain;
-  } catch (error) {
-    showStatus('Error getting current tab', 'error');
-    return;
+  // Initialize
+  await init();
+
+  async function init() {
+    // Get current tab and domain
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      currentTab = tabs[0];
+      const url = new URL(currentTab.url);
+      currentDomain = url.hostname;
+      domainEl.textContent = currentDomain;
+    } catch (error) {
+      showStatus('Error getting current tab', 'error');
+      return;
+    }
+
+    // Check if user is already logged in
+    const userData = await getStoredUser();
+    if (userData) {
+      currentUser = userData;
+      showMainSection();
+      await loadUserSessions();
+    } else {
+      showLoginSection();
+    }
   }
 
-  // Export session
-  exportBtn.addEventListener('click', async () => {
+  // Storage helpers
+  async function storeUser(userData) {
+    await chrome.storage.local.set({ user: userData });
+  }
+
+  async function getStoredUser() {
+    const result = await chrome.storage.local.get(['user']);
+    return result.user;
+  }
+
+  async function clearStoredUser() {
+    await chrome.storage.local.remove(['user']);
+  }
+
+  // UI helpers
+  function showLoginSection() {
+    loginSection.style.display = 'block';
+    mainSection.style.display = 'none';
+  }
+
+  function showMainSection() {
+    loginSection.style.display = 'none';
+    mainSection.style.display = 'block';
+    userInfo.textContent = `Logged in as: ${currentUser.email}`;
+  }
+
+  // Authentication
+  loginBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+    
+    if (!email || !password) {
+      showStatus('Please enter email and password', 'error');
+      return;
+    }
+
+    try {
+      showStatus('Logging in...', 'info');
+      
+      const response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        currentUser = data.user;
+        currentUser.token = data.token;
+        await storeUser(currentUser);
+        showMainSection();
+        await loadUserSessions();
+        showStatus('Login successful!', 'success');
+        emailInput.value = '';
+        passwordInput.value = '';
+      } else {
+        showStatus(data.error || 'Login failed', 'error');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      showStatus('Login failed: Network error', 'error');
+    }
+  });
+
+  registerBtn.addEventListener('click', async () => {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+    
+    if (!email || !password) {
+      showStatus('Please enter email and password', 'error');
+      return;
+    }
+
+    if (password.length < 6) {
+      showStatus('Password must be at least 6 characters', 'error');
+      return;
+    }
+
+    try {
+      showStatus('Creating account...', 'info');
+      
+      const response = await fetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        currentUser = data.user;
+        currentUser.token = data.token;
+        await storeUser(currentUser);
+        showMainSection();
+        await loadUserSessions();
+        showStatus('Account created successfully!', 'success');
+        emailInput.value = '';
+        passwordInput.value = '';
+      } else {
+        showStatus(data.error || 'Registration failed', 'error');
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      showStatus('Registration failed: Network error', 'error');
+    }
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    currentUser = null;
+    await clearStoredUser();
+    showLoginSection();
+    sessionsDropdown.innerHTML = '<option value="">Select a session...</option>';
+    showStatus('Logged out successfully', 'success');
+  });
+
+  // Session management
+  saveSessionBtn.addEventListener('click', async () => {
+    if (!currentUser) {
+      showStatus('Please login first', 'error');
+      return;
+    }
+
     try {
       showStatus('Extracting cookies...', 'info');
       
-      // Get cookies in multiple ways to catch all variations
+      // Get cookies using the same logic as before
       let allCookies = [];
       
-      // Method 1: Exact domain
       const exactDomainCookies = await chrome.cookies.getAll({ domain: currentDomain });
       allCookies = allCookies.concat(exactDomainCookies);
       
-      // Method 2: With leading dot (for subdomain cookies)
       const dotDomainCookies = await chrome.cookies.getAll({ domain: '.' + currentDomain });
       allCookies = allCookies.concat(dotDomainCookies);
       
-      // Method 3: Get all cookies for the URL
       const urlCookies = await chrome.cookies.getAll({ url: currentTab.url });
       allCookies = allCookies.concat(urlCookies);
       
-      // Method 4: Check common subdomains
       const subdomains = ['www.' + currentDomain, 'm.' + currentDomain];
       for (const subdomain of subdomains) {
         try {
           const subCookies = await chrome.cookies.getAll({ domain: subdomain });
           allCookies = allCookies.concat(subCookies);
         } catch (e) {
-          // Ignore errors for subdomains that don't exist
+          // Ignore errors
         }
       }
       
-      // Remove duplicates based on name+domain+path
+      // Remove duplicates
       const uniqueCookies = [];
       const seen = new Set();
       
@@ -63,70 +211,66 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
       
-      console.log('Found cookies:', uniqueCookies);
-      
       if (uniqueCookies.length === 0) {
-        showStatus('No cookies found for this domain. Try refreshing the page first.', 'error');
+        showStatus('No cookies found for this domain', 'error');
         return;
       }
 
+      // Save session to server
       const sessionData = {
         domain: currentDomain,
         url: currentTab.url,
         cookies: uniqueCookies,
-        timestamp: Date.now(),
-        expires: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
         userAgent: navigator.userAgent
       };
 
-      // Create and download file
-      const blob = new Blob([JSON.stringify(sessionData, null, 2)], {
-        type: 'application/json'
-      });
-      
-      const downloadUrl = URL.createObjectURL(blob);
-      const filename = `${currentDomain}_session_${new Date().getTime()}.session`;
-      
-      await chrome.downloads.download({
-        url: downloadUrl,
-        filename: filename,
-        saveAs: true
+      const response = await fetch(`${API_BASE}/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentUser.token}`
+        },
+        body: JSON.stringify(sessionData)
       });
 
-      showStatus(`Session exported! (${uniqueCookies.length} cookies)`, 'success');
+      const data = await response.json();
+
+      if (response.ok) {
+        showStatus(`Session saved! (${uniqueCookies.length} cookies)`, 'success');
+        await loadUserSessions();
+      } else {
+        showStatus(data.error || 'Failed to save session', 'error');
+      }
       
     } catch (error) {
-      console.error('Export error:', error);
-      showStatus('Export failed: ' + error.message, 'error');
+      console.error('Save session error:', error);
+      showStatus('Save failed: ' + error.message, 'error');
     }
   });
 
-  // Import session
-  importBtn.addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  fileInput.addEventListener('change', async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  loadSessionBtn.addEventListener('click', async () => {
+    const sessionId = sessionsDropdown.value;
+    if (!sessionId) {
+      showStatus('Please select a session to load', 'error');
+      return;
+    }
 
     try {
-      showStatus('Reading session file...', 'info');
+      showStatus('Loading session...', 'info');
       
-      const text = await file.text();
-      const sessionData = JSON.parse(text);
+      const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
 
-      // Validate session data
-      if (!sessionData.domain || !sessionData.cookies || !Array.isArray(sessionData.cookies)) {
-        throw new Error('Invalid session file format');
+      const sessionData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(sessionData.error || 'Failed to load session');
       }
 
-      // Check if expired
-      if (sessionData.expires && Date.now() > sessionData.expires) {
-        throw new Error('Session has expired');
-      }
-
-      showStatus(`Importing ${sessionData.cookies.length} cookies for ${sessionData.domain}...`, 'info');
+      showStatus(`Importing ${sessionData.cookies.length} cookies...`, 'info');
 
       let successCount = 0;
       let errorCount = 0;
@@ -134,7 +278,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Import each cookie
       for (const cookie of sessionData.cookies) {
         try {
-          // Create the cookie URL - handle domain variations
           let cookieDomain = cookie.domain;
           if (cookieDomain.startsWith('.')) {
             cookieDomain = cookieDomain.substring(1);
@@ -149,34 +292,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             value: cookie.value,
             path: cookie.path,
             secure: cookie.secure,
-            httpOnly: cookie.httpOnly
+            httpOnly: cookie.httpOnly,
+            domain: cookie.domain
           };
 
-          // Handle domain properly
-          if (cookie.domain.startsWith('.')) {
-            cookieDetails.domain = cookie.domain;
-          } else {
-            cookieDetails.domain = cookie.domain;
-          }
-
-          // Set expiration if not a session cookie
           if (!cookie.session && cookie.expirationDate) {
             cookieDetails.expirationDate = cookie.expirationDate;
           }
 
-          console.log('Setting cookie:', cookieDetails);
           await chrome.cookies.set(cookieDetails);
           successCount++;
         } catch (cookieError) {
-          console.error('Cookie import failed:', cookie.name, cookieError.message, cookie);
+          console.error('Cookie import failed:', cookie.name, cookieError);
           errorCount++;
         }
       }
 
       if (successCount > 0) {
-        showStatus(`Session imported! ${successCount} cookies loaded${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
+        showStatus(`Session loaded! ${successCount} cookies imported${errorCount > 0 ? ` (${errorCount} failed)` : ''}`, 'success');
         
-        // Optionally navigate to the domain
+        // Navigate to the domain
         setTimeout(() => {
           chrome.tabs.update(currentTab.id, { url: sessionData.url || `https://${sessionData.domain}` });
         }, 1000);
@@ -185,13 +320,71 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
     } catch (error) {
-      console.error('Import error:', error);
-      showStatus('Import failed: ' + error.message, 'error');
+      console.error('Load session error:', error);
+      showStatus('Load failed: ' + error.message, 'error');
+    }
+  });
+
+  deleteSessionBtn.addEventListener('click', async () => {
+    const sessionId = sessionsDropdown.value;
+    if (!sessionId) {
+      showStatus('Please select a session to delete', 'error');
+      return;
     }
 
-    // Reset file input
-    fileInput.value = '';
+    if (!confirm('Are you sure you want to delete this session?')) {
+      return;
+    }
+
+    try {
+      showStatus('Deleting session...', 'info');
+      
+      const response = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      if (response.ok) {
+        showStatus('Session deleted successfully', 'success');
+        await loadUserSessions();
+      } else {
+        const data = await response.json();
+        showStatus(data.error || 'Failed to delete session', 'error');
+      }
+
+    } catch (error) {
+      console.error('Delete session error:', error);
+      showStatus('Delete failed: ' + error.message, 'error');
+    }
   });
+
+  async function loadUserSessions() {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${API_BASE}/sessions`, {
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+
+      const sessions = await response.json();
+
+      if (response.ok) {
+        sessionsDropdown.innerHTML = '<option value="">Select a session...</option>';
+        sessions.forEach(session => {
+          const option = document.createElement('option');
+          option.value = session.id;
+          option.textContent = `${session.domain} (${new Date(session.created_at).toLocaleDateString()})`;
+          sessionsDropdown.appendChild(option);
+        });
+      }
+    } catch (error) {
+      console.error('Load sessions error:', error);
+    }
+  }
 
   function showStatus(message, type) {
     status.textContent = message;
