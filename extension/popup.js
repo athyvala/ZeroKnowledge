@@ -1557,7 +1557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="request-domain">${request.domain}</div>
           <div class="request-meta">
             From: ${request.requesterEmail || '-'}<br>
-            Received: ${formatDate(request.created_at)}<br>
+            Received: ${formatDate(request.created_at || request.responded_at)}<br>
             Sessions: ${request.sessionCount || 0}<br>
             <span class="status-badge ${statusClass}">${statusText}</span>
           </div>
@@ -1648,19 +1648,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       if (!confirm('Delete this request?')) return;
       showStatus('Deleting request...', 'info');
-      const response = await fetch(`${API_BASE}/access-requests/${requestId}`, {
+      let response = await fetch(`${API_BASE}/access-requests/${requestId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${currentUser.token}`,
           'Cache-Control': 'no-cache'
         }
       });
-      const data = await response.json();
+      // Fallback if DELETE endpoint is not available
+      if (!response.ok && response.status === 404) {
+        response = await fetch(`${API_BASE}/access-requests/${requestId}/delete`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${currentUser.token}`,
+            'Cache-Control': 'no-cache'
+          }
+        });
+      }
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
         showStatus(data.message || 'Request deleted', 'success');
         await loadIncomingRequests();
       } else {
-        showStatus(data.error || 'Failed to delete request', 'error');
+        showStatus(data.error || `Delete failed (${response.status})`, 'error');
       }
     } catch (error) {
       console.error('Delete request error:', error);
