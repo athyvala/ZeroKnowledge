@@ -1225,7 +1225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="session-info">
           <div class="session-domain">${session.domain || 'Unknown domain'}</div>
           <div class="session-meta">
-            Shared by: ${session.ownerEmail || 'Unknown'}<br>
+            Shared by: ${session.owneremail || 'Unknown'}<br>
             ${session.shared_at ? `Shared: ${formatDate(session.shared_at)}` : (session.created_at ? `Date: ${formatDate(session.created_at)}` : 'Date: -')}
           </div>
         </div>
