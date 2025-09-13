@@ -1556,8 +1556,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="request-info">
           <div class="request-domain">${request.domain}</div>
           <div class="request-meta">
-            From: ${request.requesterEmail}<br>
-            Received: ${new Date(request.created_at).toLocaleDateString()}<br>
+            From: ${request.requesterEmail || '-'}<br>
+            Received: ${formatDate(request.created_at)}<br>
             Sessions: ${request.sessionCount || 0}<br>
             <span class="status-badge ${statusClass}">${statusText}</span>
           </div>
@@ -1572,6 +1572,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               Deny
             </button>
           ` : ''}
+          <button class="btn btn-secondary delete-access-request-btn" data-request-id="${request.id}">Delete</button>
         </div>
       `;
       
@@ -1581,6 +1582,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Attach event listeners to approve/deny buttons
     const approveBtns = manageRequestsList.querySelectorAll('.approve-btn');
     const denyBtns = manageRequestsList.querySelectorAll('.deny-btn');
+    const deleteBtns = manageRequestsList.querySelectorAll('.delete-access-request-btn');
 
     approveBtns.forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -1593,6 +1595,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       btn.addEventListener('click', async (e) => {
         const requestId = btn.getAttribute('data-request-id');
         await handleDenyRequest(requestId);
+      });
+    });
+
+    deleteBtns.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const requestId = btn.getAttribute('data-request-id');
+        await handleDeleteAccessRequest(requestId);
       });
     });
   }
@@ -1631,6 +1640,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         showStatus('Deny failed: ' + error.message, 'error');
       }
     }
+  }
+
+  async function handleDeleteAccessRequest(requestId) {
+    try {
+      if (!confirm('Delete this request?')) return;
+      showStatus('Deleting request...', 'info');
+      const response = await fetch(`${API_BASE}/access-requests/${requestId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`
+        }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        showStatus(data.message || 'Request deleted', 'success');
+        await loadIncomingRequests();
+      } else {
+        showStatus(data.error || 'Failed to delete request', 'error');
+      }
+    } catch (error) {
+      console.error('Delete request error:', error);
+      showStatus('Delete failed: ' + error.message, 'error');
+    }
+  }
+
+  // Utility: robust date formatter for timestamps from backend
+  function formatDate(input) {
+    if (!input) return '-';
+    const tryParse = (v) => { const d = new Date(v); return isNaN(d.getTime()) ? null : d; };
+    let d = tryParse(input);
+    if (!d && typeof input === 'string') {
+      const iso = input.includes('T') ? input : input.replace(' ', 'T');
+      d = tryParse(/Z|[\+\-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z');
+    }
+    return d ? d.toLocaleDateString() : '-';
   }
 
   // FRIENDS SYSTEM HELPER FUNCTIONS

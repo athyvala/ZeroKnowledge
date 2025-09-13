@@ -891,6 +891,28 @@ app.get('/api/access-requests/incoming', authenticateToken, async (req, res) => 
   }
 });
 
+// Delete an access request (owner side)
+app.delete('/api/access-requests/:id', authenticateToken, async (req, res) => {
+  const ownerId = req.user.id;
+  const requestId = req.params.id;
+
+  try {
+    const result = await db.query(
+      'DELETE FROM access_requests WHERE id = $1 AND owner_id = $2',
+      [requestId, ownerId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Access request not found' });
+    }
+
+    res.json({ message: 'Access request deleted' });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to delete access request' });
+  }
+});
+
 // Get outgoing access requests (for requesters)
 app.get('/api/access-requests/outgoing', authenticateToken, async (req, res) => {
   const requesterId = req.user.id;
