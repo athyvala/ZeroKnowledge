@@ -365,6 +365,17 @@
 
       <div class="divider"></div>
 
+        <div class="form-group">
+          <button id="friendsBtn" class="btn btn-primary">Friends</button>
+        </div>
+
+        <div class="btn-row">
+          <button id="addFriendBtn" class="btn btn-outline">Add Friend</button>
+          <button id="friendRequestsBtn" class="btn btn-outline">Friend Requests</button>
+        </div>
+
+        <div class="divider"></div>
+
       <button id="logoutBtn" class="btn btn-secondary">Logout</button>
     </div>
 
@@ -413,5 +424,58 @@
   </div>
 
   <script src="popup.js"></script>
+  </body>
+
+  <!-- Friends Modal -->
+  <div id="friendsModal" class="modal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>My Friends</h3>
+        <button id="closeFriendsBtn" class="btn btn-sm btn-secondary">×</button>
+      </div>
+      <div id="friendsList" class="friends-list">
+        <!-- Friends will be populated here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Friend Modal -->
+  <div id="addFriendModal" class="modal">
+    <div class="modal-content">
+      <h3>Add Friend</h3>
+      <div class="form-group">
+        <label for="friendEmail">Friend's Email:</label>
+        <input type="email" id="friendEmail" placeholder="Enter email address" required>
+      </div>
+      <div class="form-group">
+        <label for="friendRequestMessage">Message (optional):</label>
+        <textarea id="friendRequestMessage" placeholder="Hi! I'd like to add you as a friend." rows="3"></textarea>
+      </div>
+      <div class="btn-row">
+        <button id="confirmAddFriendBtn" class="btn btn-primary">Send Request</button>
+        <button id="cancelAddFriendBtn" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Friend Requests Modal -->
+  <div id="friendRequestsModal" class="modal">
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3>Friend Requests</h3>
+        <button id="closeFriendRequestsBtn" class="btn btn-sm btn-secondary">×</button>
+      </div>
+      <div class="tab-buttons">
+        <button id="incomingFriendRequestsTab" class="tab-btn active">Incoming</button>
+        <button id="outgoingFriendRequestsTab" class="tab-btn">Outgoing</button>
+      </div>
+      <div id="incomingFriendRequestsList" class="requests-list">
+        <!-- Incoming friend requests will be populated here -->
+      </div>
+      <div id="outgoingFriendRequestsList" class="requests-list" style="display: none;">
+        <!-- Outgoing friend requests will be populated here -->
+      </div>
+    </div>
+  </div>
 </body>
 </html>
