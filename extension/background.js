@@ -8,7 +8,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.storage.local.set({
       settings: {
         autoSync: false,
-        syncInterval: 300000, // 5 minutes
+        syncInterval: 60000, // 1 minute
         maxSessions: 50
       }
     });
@@ -27,7 +27,7 @@ let syncInterval = null;
 
 chrome.storage.local.get(['settings', 'user'], (result) => {
   if (result.settings?.autoSync && result.user?.token) {
-    startAutoSync(result.settings.syncInterval || 300000);
+    startAutoSync(result.settings.syncInterval || 60000);
   }
 });
 
@@ -70,7 +70,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     if (changes.settings?.newValue?.autoSync) {
       chrome.storage.local.get(['user'], (result) => {
         if (result.user?.token) {
-          startAutoSync(changes.settings.newValue.syncInterval || 300000);
+          startAutoSync(changes.settings.newValue.syncInterval || 60000);
         }
       });
     } else if (changes.settings?.newValue?.autoSync === false) {
@@ -300,33 +300,49 @@ async function cleanupExpiredSessions() {
       const sharedSessions = result.sharedSessions;
       let hasExpiredShared = false;
       for (const [id, session] of Object.entries(sharedSessions)) {
-        // Consistent with popup.js/server.js: expiration is ISO string, compare as UTC
-        if (session.expiration && Date.parse(session.expiration) < now) {
-          // Delete all cookies for the domain
-          try {
-            const cookies = await chrome.cookies.getAll({ domain: session.domain });
-            for (const cookie of cookies) {
-              let cookieDomain = cookie.domain;
-              if (cookieDomain.startsWith('.')) {
-                cookieDomain = cookieDomain.substring(1);
+        console.log(`[Cleanup] Checking shared session id=${id}, domain=${session.domain}, expiration=${session.expiration}`);
+        if (session.expiration) {
+          const expTime = Date.parse(session.expiration);
+          console.log(`[Cleanup] Parsed expiration: ${expTime}, now: ${now}`);
+          if (expTime < now) {
+            console.log(`[Cleanup] Session expired. Deleting cookies for domain: ${session.domain}`);
+            // Delete all cookies for the domain
+            try {
+              const cookies = await chrome.cookies.getAll({ domain: session.domain });
+              console.log(`[Cleanup] Found ${cookies.length} cookies for domain ${session.domain}`);
+              for (const cookie of cookies) {
+                let cookieDomain = cookie.domain;
+                if (cookieDomain.startsWith('.')) {
+                  cookieDomain = cookieDomain.substring(1);
+                }
+                const protocol = cookie.secure ? 'https://' : 'http://';
+                const cookieUrl = protocol + cookieDomain + cookie.path;
+                await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+                console.log(`[Cleanup] Removed cookie: ${cookie.name} for url: ${cookieUrl}`);
               }
-              const protocol = cookie.secure ? 'https://' : 'http://';
-              const cookieUrl = protocol + cookieDomain + cookie.path;
-              await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+              console.log(`[Cleanup] Deleted all cookies for expired shared session: ${session.domain}`);
+            } catch (err) {
+              console.error('[Cleanup] Error deleting cookies for expired shared session:', session.domain, err);
             }
-            console.log(`Deleted cookies for expired shared session: ${session.domain}`);
-          } catch (err) {
-            console.error('Error deleting cookies for expired shared session:', session.domain, err);
+            // Remove session from sharedSessions
+            delete sharedSessions[id];
+            hasExpiredShared = true;
+            console.log(`[Cleanup] Removed expired shared session id=${id}`);
+          } else {
+            console.log(`[Cleanup] Session not expired yet.`);
           }
-          // Remove session from sharedSessions
-          delete sharedSessions[id];
-          hasExpiredShared = true;
+        } else {
+          console.log(`[Cleanup] No expiration set for shared session id=${id}`);
         }
       }
       if (hasExpiredShared) {
         await chrome.storage.local.set({ sharedSessions });
-        console.log('Periodic cleanup: Removed expired shared sessions');
+        console.log('[Cleanup] Periodic cleanup: Removed expired shared sessions');
+      } else {
+        console.log('[Cleanup] No expired shared sessions found during cleanup.');
       }
+    } else {
+      console.log('[Cleanup] No sharedSessions found in storage.');
     }
 
     // Check if active session has expired

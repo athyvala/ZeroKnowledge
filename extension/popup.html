@@ -413,6 +413,7 @@
   </style>
 </head>
 <body>
+
   <div class="container">
     <div class="header">
       <h2>Session Manager</h2>
@@ -421,70 +422,118 @@
 
     <div id="status" class="status"></div>
 
+    <!-- Tab Buttons -->
+    <div class="tab-buttons">
+      <button id="tabSessions" class="tab-btn active">Sessions</button>
+      <button id="tabFriends" class="tab-btn">Friends</button>
+    </div>
+
     <!-- Login Section -->
     <div id="loginSection" class="section">
       <div class="form-group">
         <label for="email">Email</label>
         <input type="email" id="email" placeholder="Enter your email" required>
       </div>
-      
       <div class="form-group">
         <label for="password">Password</label>
         <input type="password" id="password" placeholder="Enter your password" required>
       </div>
-      
       <button id="loginBtn" class="btn btn-primary">Login</button>
       <button id="registerBtn" class="btn btn-outline">Create Account</button>
     </div>
 
-    <!-- Main Section -->
-    <div id="mainSection" class="section">
+    <!-- Sessions Tab Section -->
+    <div id="sessionsTab" class="section active">
       <div id="userInfo" class="user-info"></div>
-      
       <div class="form-group">
         <button id="saveSessionBtn" class="btn btn-success">Save Current Session</button>
       </div>
-
       <div class="divider"></div>
-
       <div class="form-group">
         <label for="sessionsDropdown">Load Session</label>
         <select id="sessionsDropdown">
           <option value="">Select a session...</option>
         </select>
       </div>
-      
       <div class="btn-row">
         <button id="loadSessionBtn" class="btn btn-primary">Load</button>
         <button id="shareSessionBtn" class="btn btn-secondary">Share</button>
         <button id="deleteSessionBtn" class="btn btn-danger">Delete</button>
-        <button id="manageSharesBtn" class="btn btn-outline">Manage Shares</button>
       </div>
 
       <div class="divider"></div>
-
-      <button id="sharedSessionsBtn" class="btn btn-primary">View Shared Sessions</button>
-      <button id="requestAccessBtn" class="btn btn-outline">Request Session Access</button>
-
+      <div class="btn-row">
+        <button id="sharedSessionsBtn" class="btn btn-primary">View Shared Sessions</button>
+        <button id="manageSharesBtn" class="btn btn-outline">Manage Shares</button>
+      </div>
+      <div class="divider"></div>
+      <button id="requestAccessBtn" class="btn btn-success">Request Session Access</button>
       <div class="btn-row">
         <button id="viewRequestsBtn" class="btn btn-outline">My Requests</button>
         <button id="manageRequestsBtn" class="btn btn-outline">Manage Requests</button>
       </div>
-
       <div class="divider"></div>
+      <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+    </div>
 
+    <!-- Friends Tab Section -->
+    <div id="friendsTab" class="section">
       <div class="form-group">
-        <button id="friendsBtn" class="btn btn-primary">Friends</button>
+        <button id="friendsBtn" class="btn btn-primary">Friends List</button>
       </div>
-
       <div class="btn-row">
         <button id="addFriendBtn" class="btn btn-outline">Add Friend</button>
         <button id="friendRequestsBtn" class="btn btn-outline">Friend Requests</button>
       </div>
-
       <div class="divider"></div>
-
-      <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+      <!-- Friends Modal -->
+      <div id="friendsModal" class="modal">
+        <div class="modal-content modal-large">
+          <div class="modal-header">
+            <h3>My Friends</h3>
+            <button id="closeFriendsBtn" class="btn btn-sm btn-secondary">×</button>
+          </div>
+          <div id="friendsList" class="friends-list">
+          </div>
+        </div>
+      </div>
+      <!-- Add Friend Modal -->
+      <div id="addFriendModal" class="modal">
+        <div class="modal-content">
+          <h3>Add Friend</h3>
+          <div class="form-group">
+            <label for="friendEmail">Friend's Email:</label>
+            <input type="email" id="friendEmail" placeholder="Enter email address" required>
+          </div>
+          <div class="form-group">
+            <label for="friendRequestMessage">Message (optional):</label>
+            <textarea id="friendRequestMessage" placeholder="Hi! I'd like to add you as a friend."></textarea>
+          </div>
+          <div class="btn-row">
+            <button id="confirmAddFriendBtn" class="btn btn-primary">Send Request</button>
+            <button id="cancelAddFriendBtn" class="btn btn-secondary">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <!-- Friend Requests Modal -->
+      <div id="friendRequestsModal" class="modal">
+        <div class="modal-content modal-large">
+          <div class="modal-header">
+            <h3>Friend Requests</h3>
+            <button id="closeFriendRequestsBtn" class="btn btn-sm btn-secondary">×</button>
+          </div>
+          <div class="tab-buttons">
+            <button id="incomingFriendRequestsTab" class="tab-btn active">Incoming</button>
+            <button id="outgoingFriendRequestsTab" class="tab-btn">Outgoing</button>
+          </div>
+          <div id="incomingFriendRequestsList" class="requests-list">
+            <!-- Incoming friend requests will be populated here -->
+          </div>
+          <div id="outgoingFriendRequestsList" class="requests-list" style="display: none;">
+            <!-- Outgoing friend requests will be populated here -->
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Share Session Modal -->

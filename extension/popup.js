@@ -16,8 +16,27 @@ function formatDate(dateStr, includeTime = true) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Tab switching logic
+  const tabSessions = document.getElementById('tabSessions');
+  const tabFriends = document.getElementById('tabFriends');
+  const sessionsTab = document.getElementById('sessionsTab');
+  const friendsTab = document.getElementById('friendsTab');
+
+  tabSessions.addEventListener('click', () => {
+    tabSessions.classList.add('active');
+    tabFriends.classList.remove('active');
+    sessionsTab.classList.add('active');
+    friendsTab.classList.remove('active');
+  });
+
+  tabFriends.addEventListener('click', () => {
+    tabFriends.classList.add('active');
+    tabSessions.classList.remove('active');
+    friendsTab.classList.add('active');
+    sessionsTab.classList.remove('active');
+  });
   const loginSection = document.getElementById('loginSection');
-  const mainSection = document.getElementById('mainSection');
+  // ...existing code...
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
   const registerBtn = document.getElementById('registerBtn');
@@ -53,7 +72,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const closeSharedModalBtn = document.getElementById('closeSharedModalBtn');
 
   // Friends elements
-  const friendsBtn = document.getElementById('friendsBtn');
   const friendsModal = document.getElementById('friendsModal');
   const friendsList = document.getElementById('friendsList');
   const closeFriendsBtn = document.getElementById('closeFriendsBtn');
@@ -87,7 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const cancelRequestFromFriendsBtn = document.getElementById('cancelRequestFromFriendsBtn');
   const closeRequestAccessFromFriendsBtn = document.getElementById('closeRequestAccessFromFriendsBtn');
 
-  // Add Friend elements
+// Add Friend elements
   const addFriendBtn = document.getElementById('addFriendBtn');
   const addFriendModal = document.getElementById('addFriendModal');
   const friendEmail = document.getElementById('friendEmail');
@@ -153,12 +171,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // UI helpers
   function showLoginSection() {
     loginSection.style.display = 'block';
-    mainSection.style.display = 'none';
+    sessionsTab.classList.remove('active');
+    tabSessions.classList.remove('active');
   }
 
   function showMainSection() {
     loginSection.style.display = 'none';
-    mainSection.style.display = 'block';
+    sessionsTab.classList.add('active');
+    tabSessions.classList.add('active');
     userInfo.textContent = `Logged in as: ${currentUser.email}`;
   }
 
@@ -577,6 +597,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       const sharedSessions = await response.json();
 
       if (response.ok) {
+        // Store shared sessions in local storage for background cleanup
+        // Use session id as key for easier lookup
+        const sharedSessionsObj = {};
+        if (Array.isArray(sharedSessions)) {
+          sharedSessions.forEach(session => {
+            sharedSessionsObj[session.id] = session;
+          });
+        }
+        await chrome.storage.local.set({ sharedSessions: sharedSessionsObj });
         displaySharedSessions(sharedSessions);
       } else {
         console.error('Failed to load shared sessions:', sharedSessions.error);
@@ -972,11 +1001,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Friends functionality
+    // friendsBtn.addEventListener('click', async () => {
+    //   showFriendsModal();
+    //   await loadFriendsList();
+    // });
+
     friendsBtn.addEventListener('click', async () => {
       showFriendsModal();
       await loadFriendsList();
     });
-
     addFriendBtn.addEventListener('click', () => {
       showAddFriendModal();
     });
