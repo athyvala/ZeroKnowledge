@@ -227,20 +227,37 @@ app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
           s.id, s.domain, s.url, s.created_at, s.updated_at,
           owner.email as ownerEmail,
           ss.shared_at,
-          ss.expires_at,
-          ss.expiration_minutes
+          ss.expiration_minutes,
+          EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared
         FROM sessions s
         JOIN session_shares ss ON s.id = ss.session_id
-        JOIN users owner ON s.user_id = owner.id
+        JOIN users owner ON ss.owner_user_id = owner.id
         WHERE ss.shared_with_user_id = $1
-          AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
           AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
         ORDER BY ss.shared_at DESC
       `;
       console.log(`DEBUG: Running query with userId: ${userId}`);
+      
       const result = await db.query(query, [userId]);
-      console.log(`DEBUG: Found ${result.rows.length} shared sessions:`, result.rows);
-      res.json(result.rows);
+      console.log(`DEBUG: Raw query result:`, result.rows);
+      
+      // Filter out expired sessions in JavaScript (much simpler!)
+      const validSessions = result.rows.filter(row => {
+        // If no expiration set, session is valid
+        if (!row.expiration_minutes) {
+          console.log(`DEBUG: Session ${row.id} has no expiration, keeping it`);
+          return true;
+        }
+        
+        // Check if session has expired
+        const minutesSinceShared = parseFloat(row.minutes_since_shared);
+        const isExpired = minutesSinceShared > row.expiration_minutes;
+        console.log(`DEBUG: Session ${row.id}: ${minutesSinceShared.toFixed(1)} minutes since shared, expires after ${row.expiration_minutes} minutes, expired: ${isExpired}`);
+        return !isExpired;
+      });
+      
+      console.log(`DEBUG: After filtering: ${validSessions.length} valid sessions`);
+      res.json(validSessions);
     } else {
       // Legacy mode without expiration filtering
       const query = `
@@ -274,12 +291,12 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
     let query;
     if (hasExpiration) {
       query = `
-        SELECT s.*, owner.email as ownerEmail, ss.expires_at, ss.expiration_minutes
+        SELECT s.*, owner.email as ownerEmail, ss.expires_at, ss.expiration_minutes, ss.shared_at,
+               EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared
         FROM sessions s
         JOIN session_shares ss ON s.id = ss.session_id
         JOIN users owner ON s.user_id = owner.id
         WHERE s.id = $1 AND ss.shared_with_user_id = $2
-          AND (ss.expires_at IS NULL OR ss.expires_at > NOW())
           AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
       `;
     } else {
@@ -297,6 +314,19 @@ app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
     if (!row) {
       return res.status(404).json({ error: 'Shared session not found, not accessible, or expired' });
     }
+    
+    // Check expiration using JavaScript if expiration features are enabled
+    if (hasExpiration && row.expiration_minutes) {
+      const minutesSinceShared = parseFloat(row.minutes_since_shared);
+      const isExpired = minutesSinceShared > row.expiration_minutes;
+      
+      console.log(`DEBUG: Load session ${sessionId} - Minutes since shared: ${minutesSinceShared.toFixed(1)}, expires after ${row.expiration_minutes} minutes, expired: ${isExpired}`);
+      
+      if (isExpired) {
+        return res.status(404).json({ error: 'Shared session not found, not accessible, or expired' });
+      }
+    }
+    
     try {
       const cookies = JSON.parse(row.cookies);
       const response = {
@@ -406,12 +436,17 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
       console.log(`DEBUG: Attempting to insert - sessionId: ${sessionId}, userId: ${userId}, targetUser: ${targetUser.id}`);
 
       try {
-        // Share the session (upsert) with expiration
+        // First, clean up any old shares for this session-user combination
+        await db.query(
+          'DELETE FROM session_shares WHERE session_id = $1 AND shared_with_user_id = $2',
+          [sessionId, targetUser.id]
+        );
+        console.log(`DEBUG: Cleaned up old shares for session ${sessionId} to user ${targetUser.id}`);
+        
+        // Share the session with expiration
         const insertResult = await db.query(
           `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id, shared_at, expires_at, expiration_minutes)
            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5)
-           ON CONFLICT (session_id, shared_with_user_id)
-           DO UPDATE SET shared_at = CURRENT_TIMESTAMP, expires_at = $4, expiration_minutes = $5, is_revoked = FALSE, revoked_at = NULL
            RETURNING *`,
           [sessionId, userId, targetUser.id, expiresAt, expirationMinutes]
         );
@@ -440,11 +475,16 @@ app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
     } else {
       // Use old format for compatibility
       console.log(`DEBUG: Using legacy mode for sharing`);
+      
+      // Clean up any old shares first
+      await db.query(
+        'DELETE FROM session_shares WHERE session_id = $1 AND shared_with_user_id = $2',
+        [sessionId, targetUser.id]
+      );
+      
       const insertResult = await db.query(
         `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (session_id, shared_with_user_id)
-         DO UPDATE SET shared_at = CURRENT_TIMESTAMP`,
+         VALUES ($1, $2, $3)`,
         [sessionId, userId, targetUser.id]
       );
       console.log(`DEBUG: Legacy insert result:`, insertResult.rowCount, 'rows affected');
