@@ -726,7 +726,10 @@
         </button>
       </div>
 
-      <button id="sharedSessionsBtn" class="btn btn-outline">View Shared Sessions</button>
+      <div class="btn-row">
+        <button id="sharedSessionsBtn" class="btn btn-outline">View Shared Sessions</button>
+        <button id="manageMySharesBtn" class="btn btn-outline">Manage My Shares</button>
+      </div>
       
       <div class="divider"></div>
       
@@ -817,6 +820,19 @@
         </div>
         <div id="sharedSessionsList" class="shared-sessions-list">
           <!-- Shared sessions will be populated here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage My Shares Modal -->
+    <div id="manageMySharesModal" class="modal">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>Manage My Shared Sessions</h3>
+          <button id="closeManageMySharesBtn" class="btn btn-sm btn-secondary">×</button>
+        </div>
+        <div id="mySharesList" class="shared-sessions-list">
+          <!-- My shared sessions will be populated here -->
         </div>
       </div>
     </div>
