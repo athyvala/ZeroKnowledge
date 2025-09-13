@@ -4,8 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,49 +14,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'stghfs4q56h346nn57u4werhertu475eu4
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Database setup
-const dbPath = path.join(__dirname, 'sessions.db');
-const db = new sqlite3.Database(dbPath);
-
-// Initialize database tables
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      domain TEXT NOT NULL,
-      url TEXT NOT NULL,
-      cookies TEXT NOT NULL,
-      user_agent TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS session_shares (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id INTEGER NOT NULL,
-      owner_user_id INTEGER NOT NULL,
-      shared_with_user_id INTEGER NOT NULL,
-      shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE,
-      FOREIGN KEY (owner_user_id) REFERENCES users (id) ON DELETE CASCADE,
-      FOREIGN KEY (shared_with_user_id) REFERENCES users (id) ON DELETE CASCADE,
-      UNIQUE(session_id, shared_with_user_id)
-    )
-  `);
+// Postgres (Supabase) setup
+const db = new Pool({
+  connectionString: process.env.SUPABASE_DB_URL,
+  ssl: process.env.SUPABASE_DB_SSL === 'true' ? { rejectUnauthorized: false } : false
 });
+
+// Initialize database tables (run once in Supabase, not here)
+// You should create tables in Supabase dashboard or with SQL migrations.
 
 // Authentication middleware
 const authenticateToken = (req, res, next) => {
@@ -101,47 +65,29 @@ app.get('/api/health', (req, res) => {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters long' });
     }
-
     // Check if user already exists
-    db.get('SELECT id FROM users WHERE email = ?', [email], async (err, row) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-
-      if (row) {
-        return res.status(400).json({ error: 'Email already registered' });
-      }
-
-      // Create new user
-      const passwordHash = await hashPassword(password);
-      
-      db.run('INSERT INTO users (email, password_hash) VALUES (?, ?)', 
-        [email, passwordHash], 
-        function(err) {
-          if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ error: 'Failed to create user' });
-          }
-
-          const user = { id: this.lastID, email };
-          const token = generateToken(user);
-
-          res.status(201).json({
-            user,
-            token,
-            message: 'User created successfully'
-          });
-        }
-      );
+    const userExists = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (userExists.rows.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+    // Create new user
+    const passwordHash = await hashPassword(password);
+    const result = await db.query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
+      [email, passwordHash]
+    );
+    const user = result.rows[0];
+    const token = generateToken(user);
+    res.status(201).json({
+      user,
+      token,
+      message: 'User created successfully'
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -153,34 +99,24 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-
-    db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Internal server error' });
-      }
-
-      if (!user) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      const isValidPassword = await comparePassword(password, user.password_hash);
-      if (!isValidPassword) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      const token = generateToken(user);
-      const userResponse = { id: user.id, email: user.email };
-
-      res.json({
-        user: userResponse,
-        token,
-        message: 'Login successful'
-      });
+    const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const isValidPassword = await comparePassword(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const token = generateToken(user);
+    const userResponse = { id: user.id, email: user.email };
+    res.json({
+      user: userResponse,
+      token,
+      message: 'Login successful'
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -189,85 +125,63 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Get user sessions
-app.get('/api/sessions', authenticateToken, (req, res) => {
+app.get('/api/sessions', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-
-  db.all(
-    'SELECT id, domain, url, created_at, updated_at FROM sessions WHERE user_id = ? ORDER BY updated_at DESC',
-    [userId],
-    (err, rows) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Failed to fetch sessions' });
-      }
-
-      res.json(rows);
-    }
-  );
+  try {
+    const result = await db.query(
+      'SELECT id, domain, url, created_at, updated_at FROM sessions WHERE user_id = $1 ORDER BY updated_at DESC',
+      [userId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
 });
 
 // Create session
-app.post('/api/sessions', authenticateToken, (req, res) => {
+app.post('/api/sessions', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { domain, url, cookies, userAgent } = req.body;
-
   if (!domain || !cookies || !Array.isArray(cookies)) {
     return res.status(400).json({ error: 'Domain and cookies are required' });
   }
-
   const cookiesJson = JSON.stringify(cookies);
-
-  // Check if session for this domain already exists
-  db.get('SELECT id FROM sessions WHERE user_id = ? AND domain = ?', [userId, domain], (err, row) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
-    if (row) {
+  try {
+    // Check if session for this domain already exists
+    const existing = await db.query('SELECT id FROM sessions WHERE user_id = $1 AND domain = $2', [userId, domain]);
+    if (existing.rows.length > 0) {
       // Update existing session
-      db.run(
-        'UPDATE sessions SET url = ?, cookies = ?, user_agent = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [url, cookiesJson, userAgent, row.id],
-        function(err) {
-          if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ error: 'Failed to update session' });
-          }
-
-          res.json({
-            id: row.id,
-            message: 'Session updated successfully',
-            cookieCount: cookies.length
-          });
-        }
+      await db.query(
+        'UPDATE sessions SET url = $1, cookies = $2, user_agent = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4',
+        [url, cookiesJson, userAgent, existing.rows[0].id]
       );
+      res.json({
+        id: existing.rows[0].id,
+        message: 'Session updated successfully',
+        cookieCount: cookies.length
+      });
     } else {
       // Create new session
-      db.run(
-        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent) VALUES (?, ?, ?, ?, ?)',
-        [userId, domain, url, cookiesJson, userAgent],
-        function(err) {
-          if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ error: 'Failed to save session' });
-          }
-
-          res.status(201).json({
-            id: this.lastID,
-            message: 'Session saved successfully',
-            cookieCount: cookies.length
-          });
-        }
+      const result = await db.query(
+        'INSERT INTO sessions (user_id, domain, url, cookies, user_agent) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+        [userId, domain, url, cookiesJson, userAgent]
       );
+      res.status(201).json({
+        id: result.rows[0].id,
+        message: 'Session saved successfully',
+        cookieCount: cookies.length
+      });
     }
-  });
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Get sessions shared with the current user
-app.get('/api/sessions/shared', authenticateToken, (req, res) => {
+app.get('/api/sessions/shared', authenticateToken, async (req, res) => {
   const userId = req.user.id;
-
   const query = `
     SELECT 
       s.id, s.domain, s.url, s.created_at, s.updated_at,
@@ -276,45 +190,35 @@ app.get('/api/sessions/shared', authenticateToken, (req, res) => {
     FROM sessions s
     JOIN session_shares ss ON s.id = ss.session_id
     JOIN users owner ON s.user_id = owner.id
-    WHERE ss.shared_with_user_id = ?
+    WHERE ss.shared_with_user_id = $1
     ORDER BY ss.shared_at DESC
   `;
-
-  console.log('Query succeeded:', query);
-
-  db.all(query, [userId], (err, rows) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Failed to fetch shared sessions' });
-    }
-
-    res.json(rows);
-  });
+  try {
+    const result = await db.query(query, [userId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Failed to fetch shared sessions' });
+  }
 });
 
 // Get specific shared session data
-app.get('/api/sessions/shared/:id', authenticateToken, (req, res) => {
+app.get('/api/sessions/shared/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
-
   const query = `
     SELECT s.*, owner.email as ownerEmail
     FROM sessions s
     JOIN session_shares ss ON s.id = ss.session_id
     JOIN users owner ON s.user_id = owner.id
-    WHERE s.id = ? AND ss.shared_with_user_id = ?
+    WHERE s.id = $1 AND ss.shared_with_user_id = $2
   `;
-
-  db.get(query, [sessionId, userId], (err, row) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
+  try {
+    const result = await db.query(query, [sessionId, userId]);
+    const row = result.rows[0];
     if (!row) {
       return res.status(404).json({ error: 'Shared session not found or not accessible' });
     }
-
     try {
       const cookies = JSON.parse(row.cookies);
       res.json({
@@ -331,49 +235,46 @@ app.get('/api/sessions/shared/:id', authenticateToken, (req, res) => {
       console.error('JSON parse error:', parseError);
       res.status(500).json({ error: 'Corrupted session data' });
     }
-  });
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Get specific session
-app.get('/api/sessions/:id', authenticateToken, (req, res) => {
+app.get('/api/sessions/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
-
   console.log('sessions/:id called with sessionId:', sessionId, 'and userId:', userId);
-  db.get(
-    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId],
-    (err, row) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-
-      if (!row) {
-        return res.status(404).json({ error: 'Session Lookup: Session not found'});
-      }
-
-      try {
-        const cookies = JSON.parse(row.cookies);
-        res.json({
-          id: row.id,
-          domain: row.domain,
-          url: row.url,
-          cookies: cookies,
-          userAgent: row.user_agent,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at
-        });
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        res.status(500).json({ error: 'Corrupted session data' });
-      }
+  try {
+    const result = await db.query('SELECT * FROM sessions WHERE id = $1 AND user_id = $2', [sessionId, userId]);
+    const row = result.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Session Lookup: Session not found'});
     }
-  );
+    try {
+      const cookies = JSON.parse(row.cookies);
+      res.json({
+        id: row.id,
+        domain: row.domain,
+        url: row.url,
+        cookies: cookies,
+        userAgent: row.user_agent,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      res.status(500).json({ error: 'Corrupted session data' });
+    }
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
 });
 
 // Share session with another user
-app.post('/api/sessions/:id/share', authenticateToken, (req, res) => {
+app.post('/api/sessions/:id/share', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
   const { email } = req.body;
@@ -382,58 +283,52 @@ app.post('/api/sessions/:id/share', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Email address is required' });
   }
 
-  // First, verify the session belongs to the current user
-  db.get(
-    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId],
-    (err, session) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found or not owned by you' });
-      }
-
-      // Find the user to share with
-      db.get('SELECT id, email FROM users WHERE email = ?', [email], (err, targetUser) => {
-        if (err) {
-          console.error('Database error:', err);
-          return res.status(500).json({ error: 'Database error' });
-        }
-
-        if (!targetUser) {
-          return res.status(404).json({ error: 'User not found with that email address' });
-        }
-
-        if (targetUser.id === userId) {
-          return res.status(400).json({ error: 'Cannot share session with yourself' });
-        }
-
-        // Create the share record
-        db.run(
-          'INSERT OR REPLACE INTO session_shares (session_id, owner_user_id, shared_with_user_id) VALUES (?, ?, ?)',
-          [sessionId, userId, targetUser.id],
-          function(err) {
-            if (err) {
-              console.error('Database error:', err);
-              return res.status(500).json({ error: 'Failed to share session' });
-            }
-
-            res.json({
-              message: `Session shared successfully with ${email}`,
-              sharedWith: targetUser.email
-            });
-          }
-        );
-      });
+  try {
+    // Verify the session belongs to the current user
+    const sessionResult = await db.query(
+      'SELECT id FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or not owned by you' });
     }
-  );
+
+    // Find the user to share with
+    const userResult = await db.query(
+      'SELECT id, email FROM users WHERE email = $1',
+      [email]
+    );
+    const targetUser = userResult.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found with that email address' });
+    }
+
+    if (targetUser.id === userId) {
+      return res.status(400).json({ error: 'Cannot share session with yourself' });
+    }
+
+    // Share the session (upsert)
+    await db.query(
+      `INSERT INTO session_shares (session_id, owner_user_id, shared_with_user_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (session_id, shared_with_user_id)
+       DO UPDATE SET shared_at = CURRENT_TIMESTAMP`,
+      [sessionId, userId, targetUser.id]
+    );
+
+    res.json({
+      message: `Session shared successfully with ${email}`,
+      sharedWith: targetUser.email
+    });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to share session' });
+  }
 });
 
 // Unshare session (remove share)
-app.delete('/api/sessions/:id/share', authenticateToken, (req, res) => {
+app.delete('/api/sessions/:id/share', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
   const { email } = req.body;
@@ -442,150 +337,131 @@ app.delete('/api/sessions/:id/share', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Email address is required' });
   }
 
-  // Verify the session belongs to the current user
-  db.get(
-    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId],
-    (err, session) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found or not owned by you' });
-      }
-
-      // Find the user to unshare from
-      db.get('SELECT id FROM users WHERE email = ?', [email], (err, targetUser) => {
-        if (err) {
-          console.error('Database error:', err);
-          return res.status(500).json({ error: 'Database error' });
-        }
-
-        if (!targetUser) {
-          return res.status(404).json({ error: 'User not found with that email address' });
-        }
-
-        // Remove the share record
-        db.run(
-          'DELETE FROM session_shares WHERE session_id = ? AND owner_user_id = ? AND shared_with_user_id = ?',
-          [sessionId, userId, targetUser.id],
-          function(err) {
-            if (err) {
-              console.error('Database error:', err);
-              return res.status(500).json({ error: 'Failed to unshare session' });
-            }
-
-            if (this.changes === 0) {
-              return res.status(404).json({ error: 'Share not found' });
-            }
-
-            res.json({
-              message: `Session unshared from ${email}`
-            });
-          }
-        );
-      });
+  try {
+    const sessionResult = await db.query(
+      'SELECT id FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or not owned by you' });
     }
-  );
+
+    const userResult = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email]
+    );
+    const targetUser = userResult.rows[0];
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found with that email address' });
+    }
+
+    const deleteResult = await db.query(
+      `DELETE FROM session_shares
+       WHERE session_id = $1 AND owner_user_id = $2 AND shared_with_user_id = $3`,
+      [sessionId, userId, targetUser.id]
+    );
+
+    if (deleteResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Share not found' });
+    }
+
+    res.json({ message: `Session unshared from ${email}` });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to unshare session' });
+  }
 });
 
 // Get list of users who have access to a specific session
-app.get('/api/sessions/:id/shares', authenticateToken, (req, res) => {
+app.get('/api/sessions/:id/shares', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
 
-  // Verify the session belongs to the current user
-  db.get(
-    'SELECT * FROM sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId],
-    (err, session) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found or not owned by you' });
-      }
-
-      // Get list of users this session is shared with
-      const query = `
-        SELECT 
-          u.email,
-          ss.shared_at
-        FROM session_shares ss
-        JOIN users u ON ss.shared_with_user_id = u.id
-        WHERE ss.session_id = ? AND ss.owner_user_id = ?
-        ORDER BY ss.shared_at DESC
-      `;
-
-      db.all(query, [sessionId, userId], (err, rows) => {
-        if (err) {
-          console.error('Database error:', err);
-          return res.status(500).json({ error: 'Failed to fetch share list' });
-        }
-
-        res.json(rows);
-      });
+  try {
+    const sessionResult = await db.query(
+      'SELECT id FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or not owned by you' });
     }
-  );
+
+    const sharesResult = await db.query(
+      `SELECT 
+         u.email,
+         ss.shared_at
+       FROM session_shares ss
+       JOIN users u ON ss.shared_with_user_id = u.id
+       WHERE ss.session_id = $1 AND ss.owner_user_id = $2
+       ORDER BY ss.shared_at DESC`,
+      [sessionId, userId]
+    );
+
+    res.json(sharesResult.rows);
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to fetch share list' });
+  }
 });
 
 // Delete session
-app.delete('/api/sessions/:id', authenticateToken, (req, res) => {
+app.delete('/api/sessions/:id', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const sessionId = req.params.id;
 
-  db.run(
-    'DELETE FROM sessions WHERE id = ? AND user_id = ?',
-    [sessionId, userId],
-    function(err) {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Failed to delete session' });
-      }
+  try {
+    const result = await db.query(
+      'DELETE FROM sessions WHERE id = $1 AND user_id = $2',
+      [sessionId, userId]
+    );
 
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Session not found' });
-      }
-
-      res.json({ message: 'Session deleted successfully' });
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Session not found' });
     }
-  );
+
+    res.json({ message: 'Session deleted successfully' });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to delete session' });
+  }
 });
 
+
 // Get user profile
-app.get('/api/user/profile', authenticateToken, (req, res) => {
+app.get('/api/user/profile', authenticateToken, async (req, res) => {
   const userId = req.user.id;
 
-  db.get('SELECT id, email, created_at FROM users WHERE id = ?', [userId], (err, user) => {
-    if (err) {
-      console.error('Database error:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
-
+  try {
+    const userResult = await db.query(
+      'SELECT id, email, created_at FROM users WHERE id = $1',
+      [userId]
+    );
+    const user = userResult.rows[0];
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Get session count
-    db.get('SELECT COUNT(*) as count FROM sessions WHERE user_id = ?', [userId], (err, result) => {
-      if (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
+    const countResult = await db.query(
+      'SELECT COUNT(*) FROM sessions WHERE user_id = $1',
+      [userId]
+    );
 
-      res.json({
-        id: user.id,
-        email: user.email,
-        createdAt: user.created_at,
-        sessionCount: result.count
-      });
+    res.json({
+      id: user.id,
+      email: user.email,
+      createdAt: user.created_at,
+      sessionCount: parseInt(countResult.rows[0].count, 10)
     });
-  });
+
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
 });
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -599,17 +475,17 @@ app.use((req, res) => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\nShutting down server...');
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err);
-    } else {
-      console.log('Database connection closed.');
-    }
-    process.exit(0);
-  });
+  try {
+    await db.end(); // ✅ correct for pg.Pool
+    console.log('Database connection closed.');
+  } catch (err) {
+    console.error('Error closing database:', err);
+  }
+  process.exit(0);
 });
+
 
 // Start server
 app.listen(PORT, () => {
