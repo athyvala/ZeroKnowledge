@@ -1,7 +1,116 @@
 // Updated extension popup script with account-based session sharing
 document.addEventListener('DOMContentLoaded', async () => {
+
+  // Manage Shared Sessions modal logic
+  const manageSharedSessionsBtn = document.getElementById('manageSharedSessionsBtn');
+  const manageSharedSessionsModal = document.getElementById('manageSharedSessionsModal');
+  const closeManageSharedSessionsBtn = document.getElementById('closeManageSharedSessionsBtn');
+  const sharedWithOthersList = document.getElementById('sharedWithOthersList');
+
+
+  async function fetchSharedSessions() {
+    if (!currentUser || !currentUser.token) return [];
+    try {
+      const response = await fetch(`${API_BASE}/sessions/sharedbyuser`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${currentUser.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      // Only show sessions shared by the current user, not revoked
+      // return Array.isArray(data.sharedByYou) ? data.sharedByYou.filter(s => s.status === 'active') : [];
+      return data;
+    } catch (err) {
+      console.error('Error fetching shared sessions:', err);
+      return [];
+    }
+  }
+
+  function formatDate(dateStr) {
+    const d = new Date(dateStr);
+    return isNaN(d) ? '-' : d.toLocaleString();
+  }
+
+  function renderSharedSessionsList(sessions) {
+    if (!sharedWithOthersList) return;
+    if (!sessions || sessions.length === 0) {
+      sharedWithOthersList.innerHTML = '<div class="no-sessions">No shared sessions found</div>';
+      return;
+    }
+    sharedWithOthersList.innerHTML = '';
+    sessions.forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'shared-session-item';
+      item.innerHTML = `
+        <div class="session-info">
+          <div class="session-domain">${s.domain}</div>
+          <div class="session-meta">
+            Shared with: <strong>${s.shared_with_email}</strong><br>
+            Shared: ${formatDate(s.shared_at)}<br>
+            Expires: ${formatDate(s.expires_at)}
+          </div>
+        </div>
+        <div class="session-actions">
+          <button class="btn btn-sm btn-danger revoke-btn" data-domain="${s.domain}" data-email="${s.shared_with_email}">Revoke</button>
+        </div>
+      `;
+      sharedWithOthersList.appendChild(item);
+    });
+    // Attach revoke event listeners
+    sharedWithOthersList.querySelectorAll('.revoke-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const domain = btn.getAttribute('data-domain');
+        const email = btn.getAttribute('data-email');
+        btn.textContent = 'Revoking...';
+        btn.disabled = true;
+        try {
+          // Call backend to revoke access for this domain/email
+          const response = await fetch(`${API_BASE}/sessions/revoke-domain-access`, {
+            method: 'POST',
+            headers: {
+              'Authorization': currentUser ? `Bearer ${currentUser.token}` : '',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ domain, email })
+          });
+          if (response.ok) {
+            btn.textContent = 'Revoked';
+          } else {
+            btn.textContent = 'Error';
+            btn.disabled = false;
+          }
+        } catch (err) {
+          btn.textContent = 'Error';
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  if (manageSharedSessionsBtn && manageSharedSessionsModal && closeManageSharedSessionsBtn) {
+    manageSharedSessionsBtn.addEventListener('click', async () => {
+      manageSharedSessionsModal.style.display = 'flex';
+      manageSharedSessionsModal.style.zIndex = '2000';
+      sharedWithOthersList.innerHTML = '<div class="no-sessions">Loading...</div>';
+      const sessions = await fetchSharedSessions();
+      renderSharedSessionsList(sessions);
+    });
+    closeManageSharedSessionsBtn.addEventListener('click', () => {
+      manageSharedSessionsModal.style.display = 'none';
+    });
+  }
   const loginSection = document.getElementById('loginSection');
   const mainSection = document.getElementById('mainSection');
+    // Listen for session revocation from background
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'sessionRevoked') {
+        clearImportedSession();
+        showStatus('Session revoked by owner. You have been logged out.', 'error');
+      }
+    });
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
   const registerBtn = document.getElementById('registerBtn');
@@ -212,6 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         timerInterval = setInterval(() => {
           updateSessionTimer(session.autoLogoutTime);
         }, 1000);
+        // Revocation polling now handled in background.js
       } else {
         // Session expired, clean up
         await clearImportedSession();
@@ -222,6 +332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearInterval(timerInterval);
         timerInterval = null;
       }
+      // Revocation polling now handled in background.js
     }
   }
 
@@ -1324,6 +1435,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           // Store active session with timer information
           const activeSession = {
+            sessionId: sessionData.id,
             domain: sessionData.domain,
             url: sessionData.url,
             cookies: sessionData.cookies,

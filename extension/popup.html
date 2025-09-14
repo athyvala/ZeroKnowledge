@@ -720,8 +720,8 @@
 
       <!-- Tab: Sessions -->
       <div id="tabSessions" class="tab-content active" style="animation: fadeIn 180ms ease;">
-        <div class="form-group">
-          <button id="saveSessionBtn" class="btn btn-success">Save Current Session</button>
+        <div class="form-group" style="display:flex; justify-content:space-between; align-items:center;">
+          <button id="saveSessionBtn" class="btn btn-success" style="flex:1;">Save Current Session</button>
         </div>
 
         <div class="divider"></div>
@@ -767,6 +767,20 @@
 
       <!-- Tab: Shared -->
       <div id="tabShared" class="tab-content" style="display:none; animation: fadeIn 180ms ease;">
+        <div class="form-group" style="margin-bottom:8px;">
+          <button id="manageSharedSessionsBtn" class="btn btn-outline" style="width:100%;">Manage Shared Sessions</button>
+        </div>
+
+        <!-- Manage Shared Sessions Modal -->
+        <div id="manageSharedSessionsModal" class="modal">
+          <div class="modal-content modal-large">
+            <div class="modal-header">
+              <h3>Sessions You've Shared</h3>
+              <button id="closeManageSharedSessionsBtn" class="btn btn-sm btn-secondary">×</button>
+            </div>
+            <div id="sharedWithOthersList" class="shared-sessions-list" style="max-height:350px; overflow-y:auto;"></div>
+          </div>
+        </div>
         <div class="form-group" style="margin-bottom:8px; color:#666; font-size:12px;">
           Sessions shared with you
         </div>

@@ -55,6 +55,30 @@ const generateToken = (user) => {
 };
 
 // Routes
+// Check if active session is revoked
+app.post('/api/sessions/status', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  const { sessionId } = req.body;
+  console.log('Called /session/status with:', { userId, sessionId });
+  if (!sessionId) {
+    return res.status(400).json({ error: 'sessionId is required' });
+  }
+  try {
+    // Find the most recent session for this user and domain
+    const sessionResult = await db.query(
+      'SELECT is_revoked FROM session_shares WHERE shared_with_user_id = $1 AND session_id = $2 ORDER BY expires_at DESC LIMIT 1',
+      [userId, sessionId]
+    );
+    if (sessionResult.rows.length === 0) {
+      return res.json({ is_revoked: true }); // No session found, revoked
+    }
+    const isRevoked = sessionResult.rows[0].is_revoked === true;
+    res.json({ is_revoked: isRevoked });
+  } catch (err) {
+    console.error('Error checking session status:', err);
+    res.status(500).json({ error: 'Failed to check session status' });
+  }
+});
 
 // Global variable to cache database schema state
 let hasExpirationFeatures = null;
@@ -208,6 +232,82 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Database error:', err);
     res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// Get sessions shared by the current user
+app.get('/api/sessions/sharedbyuser', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  console.log(`DEBUG: Getting shared sessions by user ID: ${userId}`);
+  
+  try {
+    const hasExpiration = await checkExpirationFeatures();
+    console.log(`DEBUG: Expiration features enabled: ${hasExpiration}`);
+    
+    if (hasExpiration) {
+      // With expiration support - filter out expired and revoked sessions
+      const query = `
+        SELECT 
+          s.id, s.domain, s.url, s.created_at, s.updated_at,
+          ss.shared_at,
+          ss.expires_at,
+          ss.expiration_minutes,
+          ss.shared_with_user_id,
+          EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared,
+          receiver.email as shared_with_email
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users receiver ON ss.shared_with_user_id = receiver.id
+        WHERE ss.owner_user_id = $1
+          AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
+        ORDER BY ss.shared_at DESC
+      `;
+      console.log(`DEBUG: Running query with userId: ${userId}`);
+      
+      const result = await db.query(query, [userId]);
+      console.log(`DEBUG: Raw query result:`, result.rows);
+      
+      // Filter out expired sessions in JavaScript (much simpler!)
+      const validSessions = result.rows.filter(row => {
+        // If no expiration set, session is valid
+        if (!row.expiration_minutes) {
+          console.log(`DEBUG: Session ${row.id} has no expiration, keeping it`);
+          return true;
+        }
+        
+        // Check if session has expired
+        const minutesSinceShared = parseFloat(row.minutes_since_shared);
+        const isExpired = minutesSinceShared > row.expiration_minutes;
+        console.log(`DEBUG: Session ${row.id}: ${minutesSinceShared.toFixed(1)} minutes since shared, expires after ${row.expiration_minutes} minutes, expired: ${isExpired}`);
+        return !isExpired;
+      });
+      
+      console.log(`DEBUG: After filtering: ${validSessions.length} valid sessions`);
+      res.json(validSessions);
+    } else {
+      // Legacy mode without expiration filtering
+      const query = `
+        SELECT 
+          s.id, s.domain, s.url, s.created_at, s.updated_at,
+          ss.shared_at,
+          ss.expires_at,
+          ss.expiration_minutes,
+          ss.shared_with_user_id,
+          EXTRACT(EPOCH FROM (NOW() - ss.shared_at))/60 as minutes_since_shared,
+          receiver.email as shared_with_email
+        FROM sessions s
+        JOIN session_shares ss ON s.id = ss.session_id
+        JOIN users receiver ON ss.shared_with_user_id = receiver.id
+        WHERE ss.owner_user_id = $1
+          AND (ss.is_revoked IS NULL OR ss.is_revoked = FALSE)
+        ORDER BY ss.shared_at DESC
+      `;
+      const result = await db.query(query, [userId]);
+      res.json(result.rows);
+    }
+  } catch (err) {
+    console.error('Database error:', err);
+    res.status(500).json({ error: 'Failed to fetch shared sessions' });
   }
 });
 

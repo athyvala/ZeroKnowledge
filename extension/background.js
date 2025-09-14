@@ -148,3 +148,91 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+
+// --- Session Revocation Polling ---
+let revokePollInterval = null;
+const API_BASE = 'http://localhost:3000/api';
+
+async function pollSessionRevocationBG() {
+  const result = await chrome.storage.local.get(['activeSession', 'user']);
+  const activeSession = result.activeSession;
+  const user = result.user;
+  if (!activeSession || !user || !user.token) {
+    if (revokePollInterval) {
+      clearInterval(revokePollInterval);
+      revokePollInterval = null;
+    }
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE}/sessions/status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${user.token}`
+      },
+      body: JSON.stringify({ sessionId: activeSession.sessionId })
+    });
+    const data = await response.json();
+    if (data.is_revoked) {
+      // Clear session and notify all extension views
+      await chrome.storage.local.remove('activeSession');
+      chrome.runtime.sendMessage({ action: 'sessionRevoked' });
+      // Optionally, clear cookies here if needed
+      if (activeSession.cookies) {
+        for (const cookie of activeSession.cookies) {
+          try {
+            let cookieDomain = cookie.domain;
+            if (cookieDomain.startsWith('.')) {
+              cookieDomain = cookieDomain.substring(1);
+            }
+            const protocol = cookie.secure ? 'https://' : 'http://';
+            const cookieUrl = protocol + cookieDomain + cookie.path;
+            await chrome.cookies.remove({ url: cookieUrl, name: cookie.name });
+          } catch (error) {
+            console.error('Failed to remove cookie:', cookie.name, error);
+          }
+        }
+      }
+      if (revokePollInterval) {
+        clearInterval(revokePollInterval);
+        revokePollInterval = null;
+      }
+    }
+  } catch (err) {
+    console.error('Error polling session revocation (background):', err);
+  }
+}
+
+function startRevokePollingBG() {
+  if (revokePollInterval) return;
+  revokePollInterval = setInterval(pollSessionRevocationBG, 10000); // every 10 seconds
+  pollSessionRevocationBG(); // initial check
+}
+
+function stopRevokePollingBG() {
+  if (revokePollInterval) {
+    clearInterval(revokePollInterval);
+    revokePollInterval = null;
+  }
+}
+
+// Start polling when extension starts if session exists
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.get(['activeSession', 'user'], (result) => {
+    if (result.activeSession && result.user && result.user.token) {
+      startRevokePollingBG();
+    }
+  });
+});
+
+// Also start polling when a new session is set
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.activeSession) {
+    if (changes.activeSession.newValue) {
+      startRevokePollingBG();
+    } else {
+      stopRevokePollingBG();
+    }
+  }
+});
