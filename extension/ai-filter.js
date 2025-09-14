@@ -7,7 +7,7 @@ class SessionAI {
       this.maskedElements = new Set();
       
       // Hugging Face API configuration - hardcoded for simplicity
-      this.huggingFaceApiKey = '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';
+      this.huggingFaceApiKey = 'HUGGING_FACE_API_KEY';
       this.huggingFaceModels = {
         ner: 'dslim/bert-base-NER',
         pii: 'microsoft/DialoGPT-medium'

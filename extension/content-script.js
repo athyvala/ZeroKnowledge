@@ -13,7 +13,7 @@
             this.maskedElements = new Set();
             
             // Hugging Face API configuration
-            this.huggingFaceApiKey = 'HAPPY_FACE_API_KEY_PLACEHOLDER';
+            this.huggingFaceApiKey = 'HUGGING_FACE_API_KEY';
             this.huggingFaceModels = {
                 ner: 'dslim/bert-base-NER',
                 pii: 'microsoft/DialoGPT-medium'
