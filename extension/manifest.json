@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Session Sharer AI - Elderly Assistance",
+  "version": "1.0",
+  "description": "Safe session sharing with AI privacy protection for elderly assistance",
+  "permissions": [
+    "cookies",
+    "activeTab", 
+    "storage",
+    "downloads",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Session Sharer AI"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  }
+}
