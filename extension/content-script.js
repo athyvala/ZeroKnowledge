@@ -3,7 +3,7 @@
     'use strict';
     
     console.log('🤖 Session Sharer AI content script loading...');
-    
+  
     // AI-powered content filtering class - AI-FIRST approach
     class SessionAI {
         constructor() {
@@ -13,7 +13,7 @@
             this.maskedElements = new Set();
             
             // Hugging Face API configuration
-            this.huggingFaceApiKey = 'HUGGING_FACE_API_KEY';
+            this.huggingFaceApiKey = 'HUGGING_FACE_API_KEY_PLACEHOLDER';
             this.huggingFaceModels = {
                 ner: 'dslim/bert-base-NER',
                 pii: 'microsoft/DialoGPT-medium'
@@ -123,7 +123,7 @@
                 console.log(`🤖 AI analyzed: "${text.substring(0, 50)}..." → ${result.length || 0} entities found`);
                 return result;
                 
-            } catch (error) {
+      } catch (error) {
                 this.performanceMetrics.aiErrors++;
                 console.error('🚫 AI API error:', error);
                 throw error;
@@ -1152,128 +1152,128 @@
 
     // Initialize AI
     async function initializeAI() {
-        try {
+      try {
             isInitializing = true;
             console.log('🚀 Initializing AI-first system...');
             
             ai = new SessionAI();
-            const modelLoaded = await ai.initialize();
-            
-            // Set up navigation interception
-            ai.interceptNavigation();
-            
+        const modelLoaded = await ai.initialize();
+        
+        // Set up navigation interception
+        ai.interceptNavigation();
+        
             // Initial page scan
-            if (document.readyState === 'complete') {
+        if (document.readyState === 'complete') {
                 setTimeout(() => ai.scanAndMaskPageBatched(), 1000);
-            } else {
-                window.addEventListener('load', () => {
+        } else {
+          window.addEventListener('load', () => {
                     setTimeout(() => ai.scanAndMaskPageBatched(), 1000);
-                });
-            }
-
-            // Monitor for dynamic content changes
-            const observer = new MutationObserver((mutations) => {
-                let shouldRescan = false;
-                
-                mutations.forEach(mutation => {
-                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                        for (const node of mutation.addedNodes) {
-                            if (node.nodeType === Node.TEXT_NODE || 
-                                (node.nodeType === Node.ELEMENT_NODE && node.innerText)) {
-                                shouldRescan = true;
-                                break;
-                            }
-                        }
-                    }
-                });
-
-                if (shouldRescan) {
-                    clearTimeout(window.aiRescanTimeout);
-                    window.aiRescanTimeout = setTimeout(() => {
-                        console.log('🔄 Rescanning due to page changes...');
-                        ai.scanAndMaskPageBatched();
-                    }, 2000); // Longer delay for AI processing
+          });
+        }
+  
+        // Monitor for dynamic content changes
+        const observer = new MutationObserver((mutations) => {
+          let shouldRescan = false;
+          
+          mutations.forEach(mutation => {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+              for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.TEXT_NODE || 
+                    (node.nodeType === Node.ELEMENT_NODE && node.innerText)) {
+                  shouldRescan = true;
+                  break;
                 }
-            });
-
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                characterData: true
-            });
-
-            window.sessionAI = ai;
+              }
+            }
+          });
+  
+          if (shouldRescan) {
+            clearTimeout(window.aiRescanTimeout);
+            window.aiRescanTimeout = setTimeout(() => {
+                        console.log('🔄 Rescanning due to page changes...');
+              ai.scanAndMaskPageBatched();
+                    }, 2000); // Longer delay for AI processing
+          }
+        });
+  
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+  
+        window.sessionAI = ai;
             isInitializing = false;
             console.log('🛡️ AI-first protection system active');
-            
-        } catch (error) {
-            console.error('❌ Failed to initialize AI:', error);
+        
+      } catch (error) {
+        console.error('❌ Failed to initialize AI:', error);
             isInitializing = false;
-        }
+      }
     }
-
+  
     // Check if AI should run
     async function shouldRunAI() {
-        try {
+      try {
             const result = await chrome.storage.local.get(['aiEnabled']);
             return result.aiEnabled !== false;
-        } catch (error) {
+      } catch (error) {
             return true;
-        }
+      }
     }
-
+  
     // Main initialization
     async function init() {
-        if (await shouldRunAI()) {
+      if (await shouldRunAI()) {
             await initializeAI();
-        }
+      }
     }
-
+  
     // Start the process
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+      document.addEventListener('DOMContentLoaded', init);
     } else {
-        init();
+      init();
     }
-
+  
     // Add visual indicator
     function addAIIndicator() {
         if (document.getElementById('session-ai-indicator')) return;
         
-        const indicator = document.createElement('div');
-        indicator.id = 'session-ai-indicator';
-        indicator.style.cssText = `
-            position: fixed !important;
-            bottom: 20px !important;
-            left: 20px !important;
+      const indicator = document.createElement('div');
+      indicator.id = 'session-ai-indicator';
+      indicator.style.cssText = `
+        position: fixed !important;
+        bottom: 20px !important;
+        left: 20px !important;
             background: linear-gradient(135deg, #007bff, #0056b3) !important;
-            color: white !important;
+        color: white !important;
             padding: 10px 15px !important;
             border-radius: 25px !important;
             font-size: 14px !important;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
-            z-index: 999998 !important;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+        z-index: 999998 !important;
             opacity: 0.9 !important;
-            pointer-events: none !important;
+        pointer-events: none !important;
             font-weight: 600 !important;
             border: 2px solid #fff !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
-        `;
+      `;
         indicator.textContent = '🤖 AI-Powered Protection';
-        
+      
         if (document.body) {
-            document.body.appendChild(indicator);
-            
-            setTimeout(() => {
+      document.body.appendChild(indicator);
+      
+      setTimeout(() => {
                 if (indicator.parentNode) {
                     indicator.style.opacity = '0.6';
                 }
-            }, 3000);
+      }, 3000);
         }
     }
-
+  
     window.addEventListener('load', () => {
-        setTimeout(addAIIndicator, 1000);
+      setTimeout(addAIIndicator, 1000);
     });
-
-})();
+  
+  })();

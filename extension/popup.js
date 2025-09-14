@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const fileInput = document.getElementById('fileInput');
   const status = document.getElementById('status');
   const domainEl = document.getElementById('currentDomain');
-  
+
   // AI elements
   const aiToggle = document.getElementById('aiToggle');
   const aiStatus = document.getElementById('aiStatus');
