@@ -1,16 +1,22 @@
 const fs = require('fs');
-require('dotenv').config();
+require('dotenv').config(); // npm install dotenv
 
-// Read the content script template
-let contentScript = fs.readFileSync('content-script-template.js', 'utf8');
+const filesToProcess = [
+  'extension/content-script.js',
+  'extension/ai-filter.js' // If still using
+];
 
-// Replace the placeholder with the actual API key
-contentScript = contentScript.replace(
-    'HUGGING_FACE_API_KEY_PLACEHOLDER', 
-    process.env.HUGGING_FACE_API_KEY
-);
-
-// Write the final content script
-fs.writeFileSync('content-script.js', contentScript);
-
-console.log('✅ Extension built with API key injected');
+filesToProcess.forEach(filePath => {
+  if (fs.existsSync(filePath)) {
+    let content = fs.readFileSync(filePath, 'utf8');
+    
+    // Replace placeholder with actual key for local testing
+    content = content.replace(
+      /'HUGGING_FACE_API_KEY_PLACEHOLDER'/g,
+      JSON.stringify(process.env.HUGGING_FACE_API_KEY || '')
+    );
+    
+    fs.writeFileSync(filePath, content);
+    console.log(`✅ Built ${filePath} with secure key injection`);
+  }
+});
